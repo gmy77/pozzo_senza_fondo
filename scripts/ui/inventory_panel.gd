@@ -39,7 +39,6 @@ class Superficie extends Control:
 func _ready() -> void:
 	layer = 20
 	visible = false
-	mouse_filter = Control.MOUSE_FILTER_STOP
 
 	_blocco = ColorRect.new()
 	_blocco.color = Color(0.0, 0.0, 0.0, 0.55)
