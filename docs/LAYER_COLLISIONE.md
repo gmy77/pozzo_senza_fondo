@@ -104,7 +104,7 @@ Il selftest headless controlla gia' i punti che possono rompersi in silenzio:
 
 ```
 $env:POZZO_SELFTEST="1"
-godot --headless --path . --quit-after 1500
+godot --headless --path . --quit-after 20000
 ```
 
 Deve stampare `SELFTEST OK (fallimenti: 0)`. I controlli che riguardano i layer sono

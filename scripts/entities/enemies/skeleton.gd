@@ -13,7 +13,9 @@ func _ready() -> void:
 	level = 1
 	stats = Stats.new(8, 6, 1, 4)
 	setup_vitals()
-	speed = 112.0
+	# Piu' lento del giocatore (214 px/s) di un buon margine: deve poter essere seminato
+	# camminando, altrimenti disimpegnarsi da un combattimento e' impossibile.
+	speed = 96.0
 	aggro_radius = 240.0
 	attack_range = 30.0
 	attack_damage = 6

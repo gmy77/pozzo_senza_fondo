@@ -1,7 +1,9 @@
 # res://tools/selftest.gd
 # Scopo: verifica automatica della fase 1 senza finestra. Controlla mondo, muri (un pezzo per
 #        cella), collisioni, props, navmesh, click-to-move, blocco dei muri e spinta dei barili.
-# Uso:   POZZO_SELFTEST=1 godot --headless --path . --quit-after 1200
+# Uso:   POZZO_SELFTEST=1 godot --headless --path . --quit-after 20000
+#        (--quit-after conta iterazioni del motore, non secondi: se e' troppo basso il
+#        gioco si chiude prima della fine e non stampa niente. Non e' un guasto.)
 # Dipendenze: main.gd, world_root.gd, floor_builder.gd, prop_body.gd, constants.gd
 class_name Selftest
 extends RefCounted
@@ -204,6 +206,11 @@ static func run(main: Main) -> void:
 	player.stop()
 	for i in 6:
 		await tree.physics_frame
+
+	# Clic sul CORPO del mostro, non sui suoi piedi: e' li' che guarda chi gioca, e il
+	# disegno sale 46 px sopra l'origine.
+	player.command_at(dummy.global_position + Vector2(0.0, -36.0))
+	failures += _check(player.attack_target == dummy, "il clic sul corpo del mostro lo prende come bersaglio", notes)
 
 	player.set_hold(true, dummy.global_position)
 	for i in 120:

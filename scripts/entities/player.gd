@@ -13,6 +13,10 @@ const RADIO_CORPO: float = 11.0
 const LARGHEZZA_DISEGNO: float = 28.0
 const ALTEZZA_DISEGNO: float = 43.0
 
+# Quanto si puo' sbagliare mira e prendere lo stesso il mostro, quando il clic cade fuori
+# dal suo disegno (piedi compresi).
+const TOLLERANZA_CLIC: float = 26.0
+
 const PORTATA_MISCHIA: float = 34.0
 const RAGGIO_COLPO: float = 17.0
 const TEMPO_RECUPERO: float = 0.42
@@ -220,9 +224,28 @@ func _swing_hit() -> void:
 		0.12
 	)
 
+# Mostro sotto il cursore. Due passate: prima chi ha il punto dentro il proprio disegno,
+# poi, se nessuno, chi ha i piedi abbastanza vicini. Confrontare solo la distanza
+# dall'origine (i piedi) era il difetto: cliccando sul corpo, 36 px piu' in alto, il colpo
+# non partiva e il personaggio ci camminava semplicemente accanto.
 func _enemy_at(point: Vector2) -> Entity:
 	var best: Entity = null
-	var best_distance := 26.0
+	var best_distance := INF
+	for node in get_tree().get_nodes_in_group("enemy"):
+		var enemy := node as Enemy
+		if enemy == null or not enemy.alive:
+			continue
+		if not enemy.rect_selezione().has_point(point):
+			continue
+		# Se due disegni si sovrappongono vince quello davanti, cioe' con i piedi piu' in basso.
+		var profondita := -enemy.global_position.y
+		if profondita < best_distance:
+			best_distance = profondita
+			best = enemy
+	if best != null:
+		return best
+
+	best_distance = TOLLERANZA_CLIC
 	for node in get_tree().get_nodes_in_group("enemy"):
 		var enemy := node as Entity
 		if enemy == null or not enemy.alive:

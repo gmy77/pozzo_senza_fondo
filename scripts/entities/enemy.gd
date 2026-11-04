@@ -160,6 +160,11 @@ func _strike() -> void:
 		0.12
 	)
 
+# Area cliccabile, in coordinate mondo. NON e' il collisore: quello sta ai piedi, mentre
+# il disegno sale una quarantina di pixel. Chi gioca clicca il teschio, non le caviglie.
+func rect_selezione() -> Rect2:
+	return Rect2(global_position + Vector2(-19.0, -48.0), Vector2(38.0, 56.0))
+
 func _sees_target() -> bool:
 	if _target == null or not _target.alive:
 		return false

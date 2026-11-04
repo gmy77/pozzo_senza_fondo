@@ -32,6 +32,8 @@ if not defined GODOT (
     exit /b 1
 )
 
-"%GODOT%" --headless --path . --quit-after 2500
+rem --quit-after e' solo una rete di sicurezza: il selftest si chiude da solo quando
+rem ha finito. Va tenuto largo, perche' conta iterazioni del motore, non secondi.
+"%GODOT%" --headless --path . --quit-after 20000
 echo.
 pause

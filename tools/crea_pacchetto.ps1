@@ -28,6 +28,11 @@ if (-not (Test-Path $Godot)) {
     throw "Godot non trovato in '$Godot'. Passalo con -Godot <percorso>."
 }
 
+# La cartella del pacchetto precedente contiene una copia dei sorgenti, project.godot
+# compreso: va tolta prima di esportare, o Godot avvisa di aver trovato un altro progetto
+# dentro questo.
+if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+
 # --- 1. Esportazione ---------------------------------------------------------
 if (-not $SaltaEsportazione) {
     Write-Host "1/4 Esporto l'eseguibile..."
