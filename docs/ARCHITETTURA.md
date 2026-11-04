@@ -181,10 +181,12 @@ res://
 Prefissi: `snake_case` per i file, `PascalCase` per le `class_name`.
 Ogni script apre con un commento `res://...`, scopo, dipendenze.
 
-Stato reale (fine fase 2): `autoload/event_bus.gd`, `scripts/core/*`,
+Stato reale (fine fase 3): `autoload/event_bus.gd`, `scripts/core/*`,
 `scripts/combat/{stats,damage,hitbox}.gd`, `scripts/entities/{entity,player,enemy}.gd`,
 `scripts/entities/enemies/skeleton.gd`, `scripts/fx/damage_number.gd`,
-`scripts/world/{world_root,floor_builder,floor_painter,wall_block,prop_body,test_room,gold_pickup}.gd`,
+`scripts/items/{item_base,affix,item,item_generator,inventory,equipment}.gd`,
+`scripts/ui/{inventory_panel,tooltip}.gd`,
+`scripts/world/{world_root,floor_builder,floor_painter,wall_block,prop_body,test_room,gold_pickup,ground_item}.gd`,
 `main.gd`, `tools/selftest.gd`. Il resto arriva con le fasi indicate nella tabella finale.
 
 ---
@@ -546,6 +548,58 @@ occupazione dopo una rotazione, un solo `Rect2i` per oggetto e un `Array[bool]` 
 per la griglia. Il drag & drop diventa: prendi l'oggetto, mostra l'anteprima, verifica che
 il `Rect2i` tradotto sia dentro i bordi e che tutte le celle siano libere, piazza.
 
+### Equipaggiamento (fase 3, implementato)
+
+Nove slot in `Equipment`: arma, scudo, elmo, corazza, guanti, stivali, anello x2, amuleto.
+L'unica regola di ammissione e' la **categoria** (`ItemBase.Categoria`), e sta in
+`Equipment.accetta()`, non nella UI: se stesse nel pannello finirebbe scritta due volte e,
+prima o poi, in due modi diversi. Gli anelli sono due slot distinti della stessa categoria.
+
+**Durante il trascinamento l'oggetto non viene mai tolto dal suo contenitore.** Si sposta
+solo al rilascio riuscito. E' la decisione che rende impossibile la perdita di un oggetto:
+chiudere il pannello a meta' trascinamento, rilasciare fuori dal pannello, rilasciare su
+una cella occupata o su uno slot di categoria sbagliata finiscono tutti nello stesso modo,
+cioe' l'oggetto dov'era. Ogni spostamento che tocca due contenitori (zaino -> slot con
+scambio, slot -> slot, slot -> cintura) e' scritto in modo reversibile: se la seconda meta'
+fallisce, la prima viene annullata.
+
+**Effetto sul personaggio.** `Player` somma base e indossato:
+
+| Grandezza | Formula |
+|---|---|
+| danno del fendente | `6 + forza x 0,75 + danno dell'arma` (forza = base + affissi) |
+| difesa | somma delle difese dei pezzi + affissi `DIFESA` |
+| vita massima | `40 + vitalita x 6 + affissi VITA` |
+| velocita' | `190 + destrezza x 2 + affissi VELOCITA` |
+| probabilita' critica | `8% + destrezza x 0,4% + affissi CRITICO x 1%` |
+
+**La difesa riduce il danno davvero**, con una curva a rendimento decrescente in
+`Entity.danno_ridotto()`: `riduzione = difesa / (difesa + 50)`, tetto al 75%, minimo un
+punto di danno. Misurato dal selftest: con elmo + corazza pesante (difesa 12) un colpo da
+20 ne toglie 16. La sottrazione secca, con questi numeri, avrebbe reso il personaggio
+immortale: 12 di difesa contro i 6 danni di uno scheletro vuol dire 1 fisso per sempre.
+L'armatura ferma solo il danno **fisico**: per fuoco, gelo e veleno ci saranno le
+resistenze, che sono un'altra statistica.
+
+### Morte: non si perde mai un oggetto
+
+Regola di progetto, chiusa e non negoziabile:
+
+> Alla morte il giocatore **non perde nessun oggetto**: ne' quelli equipaggiati, ne' quelli
+> nello zaino, ne' quelli nella cintura. Gli oggetti che riprende sono **gli stessi**
+> (stessi `uid`), non copie.
+
+Penalita' di morte, scelta: **il 5% dell'oro trasportato** (`GameConsts.PENALITA_ORO_MORTE`)
+e il piano che si rigenera con tutti i mostri in piedi. Il personaggio riappare al punto di
+ritorno: nella stanza di prova e' il punto di partenza, dalla fase 5 sara' il borgo.
+Il 5% e' una multa che si sente senza diventare una punizione; la perdita vera e' il piano
+da rifare. Niente penalita' di esperienza e niente durabilita' persa: due tasse che
+scoraggiano l'unica cosa che un action RPG deve incoraggiare, cioe' riprovare subito.
+
+Implementazione: `Player.esporta_sacca()` / `importa_sacca()` passano `Inventory`,
+`Equipment` e oro al corpo nuovo. Sono `RefCounted`: il nodo del vecchio giocatore viene
+liberato, i contenitori no. `Main._restart()` applica la penalita' e ricollega il pannello.
+
 ---
 
 ## 10. Ripartizione in fasi
@@ -554,7 +608,7 @@ il `Rect2i` tradotto sia dentro i bordi e che tutte le celle siano libere, piazz
 |---|---|---|---|
 | 1 | `main.gd`, `main.tscn`, `project.godot`, `autoload/event_bus.gd`, `scripts/core/{constants,rng,art,scene_factory}.gd`, `scripts/combat/stats.gd`, `scripts/entities/{entity,player}.gd`, `scripts/world/{world_root,floor_builder,floor_painter,wall_block,prop_body,test_room}.gd`, `tools/selftest.gd` | stanza con muri, barili fisici, movimento click e WASD, telecamera, occlusione dei muri alti | **fatta**, 11 controlli headless verdi |
 | 2 | `scripts/combat/{damage,hitbox}.gd`, `scripts/entities/{entity,enemy}.gd`, `scripts/entities/enemies/skeleton.gd`, `scripts/fx/damage_number.gd`, `scripts/world/gold_pickup.gd` | scheletro con FSM, colpi, numeri, morte, oro, tasto tenuto premuto, contraccolpo su muro, corridoio affollato | **fatta**, 29 controlli headless verdi |
-| 3 | `items/*`, `affixes.gd`, `ui/inventory_panel.gd`, `ui/tooltip.gd` | loot casuale, oggetti a terra, griglia con drag & drop | da fare |
+| 3 | `scripts/items/{item_base,affix,item,item_generator,inventory,equipment}.gd`, `scripts/world/ground_item.gd`, `scripts/ui/{inventory_panel,tooltip}.gd` | loot casuale da mostri e barili, oggetti a terra, griglia con drag & drop, manichino, morte senza perdita di oggetti | **fatta**, 52 controlli headless verdi |
 | 4 | `dungeon_generator.gd`, `dungeon_floor.gd`, `fog_of_war.gd`, `lighting.gd`, mostri 2-6 | 4 piani della Cripta, scale, nebbia, luce | da fare |
 | 5 | `village.gd`, `npc.gd`, `ui/dialog_panel.gd`, `ui/shop_panel.gd`, `equipment.gd` | borgo con 4 NPC, compravendita, riparazione, identificazione | da fare |
 | 6 | `quests.gd`, `quest_manager.gd`, `bosses/*`, classi Arciera e Mago, `projectile.gd` | quest attive, boss con pattern, frecce e palle di fuoco | da fare |
@@ -571,9 +625,17 @@ il `Rect2i` tradotto sia dentro i bordi e che tutte le celle siano libere, piazz
   vanno gestiti a mano (faccia frontale + ombra). Ci sara' un `floor_painter` dedicato.
 - **Audio sintetico.** Effetti da `AudioStreamGenerator`: impatti, passi, morte, drone.
   Niente musica composta, niente riverbero da campione.
-- **Griglia oggetti.** Resta la parte piu' delicata (drag & drop, occupazione parziale),
-  ma senza rotazione il perimetro dei bug si riduce a un solo caso: il `Rect2i` tradotto.
-  La costruisco con test headless fin dalla fase 3.
+- **Griglia oggetti.** Costruita con test headless come previsto. Limiti dichiarati della
+  fase 3: **nessuno scambio al volo** (rilasciare un oggetto su una cella occupata lo fa
+  tornare indietro, non scambia i due pezzi); **nessun ordinamento automatico** dello zaino;
+  **niente clic destro** per equipaggiare al volo, si trascina; **niente requisiti** di
+  forza o livello sugli slot, l'unico controllo e' la categoria.
+- **Oggetti senza effetti speciali.** Gli affissi muovono numeri (forza, difesa, vita,
+  velocita', critico): nessun affisso cambia il comportamento del gioco. I danni elementali
+  esistono in `Damage.Kind` ma nessuna arma li produce ancora, e le resistenze non ci sono:
+  l'armatura ferma solo il fisico.
+- **Niente pozioni.** La cintura accetta gli 1x1 ma non c'e' ancora niente da bere: le
+  pozioni arrivano col borgo (fase 5), che e' anche dove si comprano.
 - **16 piani + 4 boss + 3 classi + 6 quest** e' un volume grande: le fasi 6 e 7 saranno
   le piu' lunghe. Se una fase rischia di sfondare la lunghezza della risposta, la spezzo
   su piu' file completi e ti scrivo CONTINUA.

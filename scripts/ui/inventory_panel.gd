@@ -1,30 +1,54 @@
 # res://scripts/ui/inventory_panel.gd
-# Scopo: pannello dello zaino. Griglia 10x6 da 44 px, cintura a 4 slot, drag & drop senza
-#        rotazione, tooltip sull'oggetto sotto il cursore. Nessuna scena: si costruisce in
-#        _ready() come tutto il resto.
-# Dipendenze: scripts/items/inventory.gd, item.gd, scripts/ui/tooltip.gd
+# Scopo: pannello dello zaino. A sinistra il manichino con i nove slot indossabili, a destra
+#        la griglia 10x6 da 44 px e la cintura. Drag & drop senza rotazione, con controllo
+#        della categoria: un oggetto rifiutato torna esattamente da dove e' partito.
+#        Nessuna scena: si costruisce in _ready() come tutto il resto.
+# Dipendenze: scripts/items/{inventory,equipment,item}.gd, scripts/ui/tooltip.gd
 class_name InventoryPanel
 extends CanvasLayer
 
 const CELLA: float = 44.0
-const PANNELLO: Vector2 = Vector2(488.0, 420.0)
-const ORIGINE_GRIGLIA: Vector2 = Vector2(24.0, 56.0)
-const ORIGINE_CINTURA: Vector2 = Vector2(24.0, 356.0)
+const PANNELLO: Vector2 = Vector2(712.0, 424.0)
+const ORIGINE_GRIGLIA: Vector2 = Vector2(240.0, 56.0)
+const ORIGINE_CINTURA: Vector2 = Vector2(240.0, 356.0)
 const PASSO_CINTURA: float = 52.0
+const LATO_SLOT: float = 58.0
+
+# Posizione dei nove slot del manichino, nello stesso ordine di Equipment.Slot.
+# Sono coordinate locali del pannello: tenerle in una tabella evita nove calcoli sparsi
+# nel disegno e altri nove, inevitabilmente diversi, nel codice del mouse.
+const POSTI_SLOT: Array[Vector2] = [
+	Vector2(16.0, 142.0),   # ARMA
+	Vector2(150.0, 142.0),  # SCUDO
+	Vector2(83.0, 74.0),    # ELMO
+	Vector2(83.0, 142.0),   # CORAZZA
+	Vector2(16.0, 210.0),   # GUANTI
+	Vector2(83.0, 278.0),   # STIVALI
+	Vector2(16.0, 278.0),   # ANELLO_SX
+	Vector2(150.0, 278.0),  # ANELLO_DX
+	Vector2(150.0, 74.0),   # AMULETO
+]
 
 var inventory: Inventory
+var equipment: Equipment
+var giocatore: Player
 var aperto: bool = false
 var oro: int = 0
 
 var _blocco: ColorRect
 var _superficie: Control
 var _tooltip: Tooltip
+
+# Stato del trascinamento. L'oggetto NON viene tolto dal contenitore mentre lo trascini:
+# si sposta solo al rilascio riuscito. Cosi' chiudere il pannello a meta' trascinamento,
+# o rilasciare fuori, non puo' far sparire niente.
 var _drag: Item = null
-var _drag_origin: Vector2i = Vector2i.ZERO
-var _drag_belt: int = -1
+var _drag_pos: Vector2i = Vector2i.ZERO
+var _drag_cintura: int = -1
+var _drag_slot: int = -1
 
 # La superficie e' una Control interna perche' CanvasLayer non e' un CanvasItem: non puo'
-# disegnare. Tiene il riferimento al pannello per disegnare e ricevere il mouse.
+# disegnare ne' ricevere il mouse.
 class Superficie extends Control:
 	var pannello: InventoryPanel
 
@@ -55,25 +79,35 @@ func _ready() -> void:
 	_tooltip = Tooltip.new()
 	add_child(_tooltip)
 
-func apri(inv: Inventory) -> void:
-	inventory = inv
+# Collega il pannello a un giocatore: dopo una morte il giocatore e' un nodo nuovo, ma
+# zaino ed equipaggiamento sono gli stessi oggetti di prima.
+func collega(p: Player) -> void:
+	giocatore = p
+	inventory = p.inventory if p != null else null
+	equipment = p.equipment if p != null else null
+	oro = p.gold if p != null else 0
+
+func apri() -> void:
+	if inventory == null:
+		return
 	aperto = true
 	visible = true
-	_drag = null
 	_centra()
 	_superficie.queue_redraw()
 
 func chiudi() -> void:
+	# Chiudere mentre trascini non e' un caso raro: annulla il trascinamento e rimette
+	# l'oggetto dov'era. Siccome non era mai stato tolto, basta azzerare lo stato.
+	annulla_trascinamento()
 	aperto = false
 	visible = false
-	_drag = null
 	_tooltip.nascondi()
 
-func alterna(inv: Inventory) -> void:
+func alterna() -> void:
 	if aperto:
 		chiudi()
 	else:
-		apri(inv)
+		apri()
 
 func _centra() -> void:
 	var schermo := get_viewport().get_visible_rect().size
@@ -82,6 +116,8 @@ func _centra() -> void:
 func _process(_delta: float) -> void:
 	if not aperto or inventory == null:
 		return
+	if giocatore != null:
+		oro = giocatore.gold
 	_centra()
 	_superficie.queue_redraw()
 
@@ -89,23 +125,23 @@ func _process(_delta: float) -> void:
 	if _drag != null or not _zona_pannello(punto):
 		_tooltip.nascondi()
 		return
-	var item := _oggetto_in(punto)
+	var item := oggetto_in(punto)
 	if item == null:
 		_tooltip.nascondi()
 	else:
 		_tooltip.mostra(item, _superficie.position + punto + Vector2(18.0, 18.0))
 
-# Il rilascio va gestito anche qui: se il cursore esce dal pannello mentre trascini, il
-# Control non riceve piu' il rilascio e l'oggetto resterebbe appeso al mouse per sempre.
+# Il rilascio va intercettato anche qui: se il cursore esce dal pannello mentre trascini,
+# la Control non riceve piu' il rilascio e l'oggetto resterebbe appeso al mouse.
 func _input(event: InputEvent) -> void:
 	if not aperto or _drag == null:
 		return
 	if event is InputEventMouseButton:
 		var mouse := event as InputEventMouseButton
 		if mouse.button_index == MOUSE_BUTTON_LEFT and not mouse.pressed:
-			_finisci_trascinamento(_superficie.get_local_mouse_position())
+			rilascia(_superficie.get_local_mouse_position())
 
-# --- Input della superficie ---
+# --- Input ---
 
 func input_superficie(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton):
@@ -115,58 +151,172 @@ func input_superficie(event: InputEvent) -> void:
 		return
 	var punto := _superficie.get_local_mouse_position()
 	if mouse.pressed:
-		var item := _oggetto_in(punto)
-		if item != null:
-			_drag = item
-			_drag_origin = item.pos
-			_drag_belt = item.cintura
+		prendi(oggetto_in(punto))
 	else:
-		_finisci_trascinamento(punto)
+		rilascia(punto)
 
-func _finisci_trascinamento(punto: Vector2) -> void:
+# Prende in mano un oggetto. Pubblica perche' la prova headless deve poter trascinare
+# senza un mouse vero: la catena provata e' la stessa del gioco.
+func prendi(item: Item) -> void:
+	if item == null:
+		return
+	_drag = item
+	_drag_pos = item.pos
+	_drag_cintura = item.cintura
+	_drag_slot = equipment.slot_di(item) if equipment != null else -1
+
+func trascinato() -> Item:
+	return _drag
+
+func annulla_trascinamento() -> void:
 	if _drag == null:
 		return
+	_ripristina(_drag)
+	_drag = null
+
+# Rilascia nel punto indicato (coordinate locali del pannello). Restituisce true se
+# l'oggetto ha cambiato posto davvero.
+func rilascia(punto: Vector2) -> bool:
+	if _drag == null:
+		return false
 	var item := _drag
 	_drag = null
 
-	var slot := _slot_cintura(punto)
-	if slot >= 0 and inventory.metti_in_cintura(item, slot):
-		return
-	if _zona_griglia(punto):
+	var slot := slot_manichino(punto)
+	if slot >= 0:
+		if _posa_in_equip(item, slot):
+			_cambiato()
+			return true
+		_ripristina(item)
+		return false
+
+	var cintura := slot_cintura(punto)
+	if cintura >= 0:
+		if _posa_in_cintura(item, cintura):
+			_cambiato()
+			return true
+		_ripristina(item)
+		return false
+
+	if zona_griglia(punto):
 		var cella := Vector2i(((punto - ORIGINE_GRIGLIA) / CELLA).floor())
-		if inventory.muovi(item, cella):
-			return
-	# Riposizionamento fallito: l'oggetto torna esattamente da dove e' partito. Non si
-	# perde mai un oggetto per un drop sbagliato.
-	item.pos = _drag_origin
-	item.cintura = _drag_belt
+		if _posa_in_griglia(item, cella):
+			_cambiato()
+			return true
+
+	# Rilascio fuori dalle zone utili, o posizione occupata, o categoria sbagliata:
+	# l'oggetto torna esattamente da dove e' partito. Non si perde mai niente.
+	_ripristina(item)
+	return false
+
+func _ripristina(item: Item) -> void:
+	if _drag_slot >= 0:
+		# Lo slot non e' mai stato svuotato durante il trascinamento: non serve altro.
+		return
+	item.pos = _drag_pos
+	item.cintura = _drag_cintura
+
+func _cambiato() -> void:
+	EventBus.inventory_changed.emit()
+	EventBus.equipment_changed.emit()
+
+# --- Spostamenti, ognuno reversibile se fallisce a meta' ---
+
+func _posa_in_equip(item: Item, slot: int) -> bool:
+	if equipment == null or not equipment.accetta(slot, item):
+		return false
+	if equipment.oggetto(slot) == item:
+		return true
+
+	if _drag_slot >= 0:
+		# Da uno slot a un altro: lo scambio vale solo se anche il pezzo spostato entra
+		# nello slot di partenza, altrimenti deve esserci posto nello zaino.
+		equipment.togli(_drag_slot)
+		var spostato := equipment.equipaggia(slot, item)
+		if spostato != null:
+			if equipment.accetta(_drag_slot, spostato):
+				equipment.equipaggia(_drag_slot, spostato)
+			elif not inventory.aggiungi(spostato):
+				equipment.equipaggia(slot, spostato)
+				equipment.equipaggia(_drag_slot, item)
+				return false
+		return true
+
+	inventory.rimuovi(item)
+	var scambiato := equipment.equipaggia(slot, item)
+	if scambiato != null:
+		var sistemato := inventory.aggiungi_a(scambiato, _drag_pos)
+		if not sistemato:
+			sistemato = inventory.aggiungi(scambiato)
+		if not sistemato:
+			# Zaino pieno: niente scambio, si rimette tutto com'era.
+			equipment.equipaggia(slot, scambiato)
+			inventory.aggiungi_a(item, _drag_pos)
+			return false
+	return true
+
+func _posa_in_griglia(item: Item, cella: Vector2i) -> bool:
+	if _drag_slot >= 0:
+		equipment.togli(_drag_slot)
+		if inventory.aggiungi_a(item, cella):
+			return true
+		equipment.equipaggia(_drag_slot, item)
+		return false
+	return inventory.muovi(item, cella)
+
+func _posa_in_cintura(item: Item, slot: int) -> bool:
+	if _drag_slot >= 0:
+		equipment.togli(_drag_slot)
+		if inventory.metti_in_cintura(item, slot):
+			return true
+		equipment.equipaggia(_drag_slot, item)
+		return false
+	return inventory.metti_in_cintura(item, slot)
 
 # --- Zone ---
 
 func _zona_pannello(p: Vector2) -> bool:
 	return Rect2(Vector2.ZERO, PANNELLO).has_point(p)
 
-func _zona_griglia(p: Vector2) -> bool:
+func zona_griglia(p: Vector2) -> bool:
 	return Rect2(
 		ORIGINE_GRIGLIA,
 		Vector2(float(Inventory.COLONNE) * CELLA, float(Inventory.RIGHE) * CELLA)
 	).has_point(p)
 
-func _slot_cintura(p: Vector2) -> int:
+func slot_cintura(p: Vector2) -> int:
 	for i in Inventory.SLOT_CINTURA:
-		var rect := Rect2(ORIGINE_CINTURA + Vector2(float(i) * PASSO_CINTURA, 0.0), Vector2(CELLA, CELLA))
-		if rect.has_point(p):
+		if Rect2(ORIGINE_CINTURA + Vector2(float(i) * PASSO_CINTURA, 0.0), Vector2(CELLA, CELLA)).has_point(p):
 			return i
 	return -1
 
-func _oggetto_in(p: Vector2) -> Item:
-	var slot := _slot_cintura(p)
+func slot_manichino(p: Vector2) -> int:
+	for i in POSTI_SLOT.size():
+		if Rect2(POSTI_SLOT[i], Vector2(LATO_SLOT, LATO_SLOT)).has_point(p):
+			return i
+	return -1
+
+func oggetto_in(p: Vector2) -> Item:
+	var slot := slot_manichino(p)
 	if slot >= 0:
-		return inventory.oggetto_in_cintura(slot)
-	if not _zona_griglia(p):
+		return equipment.oggetto(slot) if equipment != null else null
+	var cintura := slot_cintura(p)
+	if cintura >= 0:
+		return inventory.oggetto_in_cintura(cintura)
+	if not zona_griglia(p):
 		return null
-	var cella := Vector2i(((p - ORIGINE_GRIGLIA) / CELLA).floor())
-	return inventory.oggetto_a(cella)
+	return inventory.oggetto_a(Vector2i(((p - ORIGINE_GRIGLIA) / CELLA).floor()))
+
+# Centro di una zona, in coordinate locali: lo usano i test per rilasciare "dentro" una
+# cella senza ricalcolare la geometria del pannello.
+func punto_cella(cella: Vector2i) -> Vector2:
+	return ORIGINE_GRIGLIA + (Vector2(cella) + Vector2(0.5, 0.5)) * CELLA
+
+func punto_slot(slot: int) -> Vector2:
+	return POSTI_SLOT[slot] + Vector2(LATO_SLOT, LATO_SLOT) * 0.5
+
+func punto_cintura(slot: int) -> Vector2:
+	return ORIGINE_CINTURA + Vector2(float(slot) * PASSO_CINTURA + CELLA * 0.5, CELLA * 0.5)
 
 # --- Disegno ---
 
@@ -175,39 +325,98 @@ func disegna(ci: Control) -> void:
 	ci.draw_rect(Rect2(Vector2.ZERO, PANNELLO), Color(0.05, 0.05, 0.06, 0.98))
 	ci.draw_rect(Rect2(Vector2.ZERO, PANNELLO), Color(0.38, 0.32, 0.22), false, 2.0)
 
-	ci.draw_string(font, Vector2(ORIGINE_GRIGLIA.x, 34.0), "ZAINO", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.88, 0.80, 0.60))
-	var conteggio := "%d oggetti, %d oro" % [inventory.quantita(), oro]
-	ci.draw_string(font, Vector2(300.0, 34.0), conteggio, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.60, 0.60, 0.60))
+	ci.draw_string(font, Vector2(16.0, 34.0), "EQUIPAGGIAMENTO", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.88, 0.80, 0.60))
+	ci.draw_string(font, Vector2(ORIGINE_GRIGLIA.x, 34.0), "ZAINO", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.88, 0.80, 0.60))
+	ci.draw_string(
+		font,
+		Vector2(ORIGINE_GRIGLIA.x + 90.0, 34.0),
+		"%d oggetti, %d oro" % [inventory.quantita(), oro],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.60, 0.60, 0.60)
+	)
+	ci.draw_line(Vector2(224.0, 48.0), Vector2(224.0, PANNELLO.y - 16.0), Color(0.20, 0.18, 0.16), 1.0)
 
+	_disegna_manichino(ci)
+	_disegna_griglia(ci)
+
+	for item in inventory.oggetti:
+		if item == _drag:
+			continue
+		_disegna_oggetto(ci, item, rect_oggetto(item))
+	if equipment != null:
+		for i in equipment.numero_slot():
+			var indossato := equipment.oggetto(i)
+			if indossato != null and indossato != _drag:
+				_disegna_oggetto(ci, indossato, Rect2(POSTI_SLOT[i], Vector2(LATO_SLOT, LATO_SLOT)))
+
+	ci.draw_string(
+		font,
+		Vector2(ORIGINE_GRIGLIA.x, PANNELLO.y - 12.0),
+		"Trascina per spostare, equipaggiare o togliere. I o ESC per chiudere.",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.50, 0.50, 0.50)
+	)
+
+	if _drag != null:
+		var mouse := _superficie.get_local_mouse_position()
+		var dimensione := Vector2(_drag.size()) * CELLA
+		_disegna_oggetto(ci, _drag, Rect2(mouse - dimensione * 0.5, dimensione))
+
+func _disegna_manichino(ci: Control) -> void:
+	var font := ThemeDB.fallback_font
+	for i in POSTI_SLOT.size():
+		var rect := Rect2(POSTI_SLOT[i], Vector2(LATO_SLOT, LATO_SLOT))
+		ci.draw_rect(rect.grow(-1.0), Color(0.075, 0.075, 0.09))
+		ci.draw_rect(rect, Color(0.22, 0.20, 0.18), false, 1.0)
+		if equipment != null and equipment.oggetto(i) == null:
+			var etichetta := Equipment.NOMI[i]
+			var larghezza := font.get_string_size(etichetta, HORIZONTAL_ALIGNMENT_LEFT, -1, 9).x
+			ci.draw_string(
+				font,
+				rect.position + Vector2((LATO_SLOT - larghezza) * 0.5, LATO_SLOT * 0.5 + 3.0),
+				etichetta,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.40, 0.40, 0.42)
+			)
+
+	# Riassunto: e' il motivo per cui si apre il pannello in mezzo a un combattimento.
+	var danno := giocatore.danno_fendente() if giocatore != null else (equipment.danno() if equipment != null else 0)
+	var difesa := equipment.difesa() if equipment != null else 0
+	var riduzione := 0.0
+	if difesa > 0:
+		riduzione = minf(Entity.RIDUZIONE_MASSIMA, float(difesa) / (float(difesa) + Entity.COSTANTE_DIFESA))
+	ci.draw_string(font, Vector2(16.0, 356.0), "Danno fendente: %d" % danno, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.86, 0.74, 0.50))
+	ci.draw_string(
+		font,
+		Vector2(16.0, 374.0),
+		"Difesa: %d  (danno fisico -%d%%)" % [difesa, int(round(riduzione * 100.0))],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.70, 0.78, 0.88)
+	)
+	if giocatore != null:
+		ci.draw_string(
+			font,
+			Vector2(16.0, 392.0),
+			"Vita: %d/%d   Velocita': %d" % [giocatore.hp, giocatore.max_hp, int(round(giocatore.velocita()))],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.72, 0.72, 0.70)
+		)
+
+func _disegna_griglia(ci: Control) -> void:
+	var font := ThemeDB.fallback_font
 	for y in Inventory.RIGHE:
 		for x in Inventory.COLONNE:
-			var rect := Rect2(
-				ORIGINE_GRIGLIA + Vector2(float(x), float(y)) * CELLA,
-				Vector2(CELLA, CELLA)
-			)
+			var rect := Rect2(ORIGINE_GRIGLIA + Vector2(float(x), float(y)) * CELLA, Vector2(CELLA, CELLA))
 			var fondo := Color(0.085, 0.085, 0.10) if (x + y) % 2 == 0 else Color(0.070, 0.070, 0.085)
 			ci.draw_rect(rect.grow(-1.0), fondo)
 			ci.draw_rect(rect, Color(0.18, 0.17, 0.20), false, 1.0)
 
-	ci.draw_string(font, Vector2(ORIGINE_CINTURA.x, 344.0), "CINTURA (solo 1x1)", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.60, 0.60, 0.60))
+	ci.draw_string(font, Vector2(ORIGINE_CINTURA.x, 346.0), "CINTURA (solo 1x1)", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.60, 0.60, 0.60))
 	for i in Inventory.SLOT_CINTURA:
 		var rect := Rect2(ORIGINE_CINTURA + Vector2(float(i) * PASSO_CINTURA, 0.0), Vector2(CELLA, CELLA))
 		ci.draw_rect(rect.grow(-1.0), Color(0.075, 0.075, 0.09))
 		ci.draw_rect(rect, Color(0.18, 0.17, 0.20), false, 1.0)
 
-	for item in inventory.oggetti:
-		if item == _drag:
-			continue
-		_disegna_oggetto(ci, item, _rect_oggetto(item))
-
-	ci.draw_string(font, Vector2(24.0, 404.0), "Tieni premuto e trascina. I o ESC per chiudere.", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.50, 0.50, 0.50))
-
-	if _drag != null:
-		var mouse := _superficie.get_local_mouse_position()
-		var rect := Rect2(mouse - Vector2(_drag.size()) * CELLA * 0.5, Vector2(_drag.size()) * CELLA)
-		_disegna_oggetto(ci, _drag, rect)
-
-func _rect_oggetto(item: Item) -> Rect2:
+func rect_oggetto(item: Item) -> Rect2:
+	if equipment != null:
+		var slot := equipment.slot_di(item)
+		if slot >= 0:
+			return Rect2(POSTI_SLOT[slot], Vector2(LATO_SLOT, LATO_SLOT))
 	if item.cintura >= 0:
 		return Rect2(ORIGINE_CINTURA + Vector2(float(item.cintura) * PASSO_CINTURA, 0.0), Vector2(CELLA, CELLA))
 	return Rect2(ORIGINE_GRIGLIA + Vector2(item.pos) * CELLA, Vector2(item.size()) * CELLA)
@@ -219,8 +428,8 @@ func _disegna_oggetto(ci: Control, item: Item, rect: Rect2) -> void:
 	ci.draw_rect(interno, colore, false, 2.0)
 	_disegna_icona(ci, item, interno)
 
-	# Il nome si scrive solo quando c'e' spazio per almeno due celle: su una cella da 44 px
-	# qualunque parola verrebbe tagliata, e un'icona basta a riconoscere la categoria.
+	# Il nome si scrive solo quando c'e' spazio: su una cella da 44 px qualunque parola
+	# verrebbe tagliata, e l'icona basta a riconoscere la categoria.
 	if rect.size.x >= CELLA * 2.0 - 4.0:
 		var font := ThemeDB.fallback_font
 		var testo: String = item.base.nome.split(" ")[0]
@@ -229,10 +438,7 @@ func _disegna_oggetto(ci: Control, item: Item, rect: Rect2) -> void:
 			font,
 			rect.position + Vector2((rect.size.x - larghezza) * 0.5, rect.size.y - 9.0),
 			testo,
-			HORIZONTAL_ALIGNMENT_LEFT,
-			-1,
-			10,
-			Color(0.90, 0.90, 0.88)
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.90, 0.90, 0.88)
 		)
 
 func _disegna_icona(ci: Control, item: Item, rect: Rect2) -> void:

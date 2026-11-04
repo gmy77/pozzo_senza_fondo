@@ -15,10 +15,19 @@ const RADIO_DETRITO: float = 5.0
 const VITA_DETRITO: float = 4.0
 const DURABILITA_BARILE: int = 14
 const DURABILITA_CASSA: int = 18
+# Probabilita' di bottino quando si rompe. Un barile su quattro da' un oggetto; degli altri,
+# un terzo da' qualche moneta. Rompere tutto non deve essere la strategia migliore, ma
+# nemmeno una perdita di tempo garantita.
+const PROBABILITA_OGGETTO: float = 0.25
+const PROBABILITA_ORO: float = 0.35
 
 var kind: Kind = Kind.BARILE
 var shade: float = 0.0
 var hp: int = DURABILITA_BARILE
+# Assegnati da chi costruisce il piano: servono a generare il bottino con lo stesso seed
+# del mondo e al livello giusto.
+var rng: Rng
+var livello: int = 1
 
 var _life: float = 0.0
 
@@ -47,11 +56,13 @@ func setup(prop_kind: Kind, color_shade: float) -> void:
 			hp = DURABILITA_CASSA
 			add_child(SceneFactory.rect_shape(Vector2(LATO_CASSA, LATO_CASSA), Vector2(0.0, -LATO_CASSA * 0.5)))
 		Kind.DETRITO:
-			# Scheggia: leggera, senza vita utile. Sparisce da sola.
+			# Scheggia: leggera, non colpibile, non bloccante. Sparisce da sola.
 			hp = 1
 			mass = 0.5
 			linear_damp = 5.0
 			_life = VITA_DETRITO
+			collision_layer = GameConsts.L_DETRITI
+			collision_mask = GameConsts.M_DETRITI
 			add_child(SceneFactory.circle_shape(RADIO_DETRITO, Vector2(0.0, -RADIO_DETRITO)))
 
 	queue_redraw()
@@ -81,13 +92,36 @@ func _draw() -> void:
 # Il colpo rompe il prop: le schegge escono nella direzione del colpo. Senza questo,
 # un barile attraversato da una spada resta li' immobile e il combattimento non convince.
 func take_hit(dmg: Damage) -> int:
+	# Una scheggia non si rompe in altre schegge: senza questo controllo ogni fendente in
+	# mezzo ai detriti ne creava tre nuovi, all'infinito.
+	if kind == Kind.DETRITO:
+		return 0
 	var applied := mini(dmg.amount, hp)
 	hp = maxi(0, hp - dmg.amount)
 	apply_central_impulse(dmg.direction.normalized() * 60.0)
 	if hp <= 0:
 		_break_apart(dmg.direction)
+		_lascia_bottino()
 		queue_free()
 	return applied
+
+# Bottino del contenitore: oggetto vero generato da ItemGenerator, non solo monete.
+# I detriti non lasciano niente, altrimenti un barile frutterebbe quattro bottini.
+func _lascia_bottino() -> void:
+	if kind == Kind.DETRITO:
+		return
+	var parent := get_parent()
+	if parent == null:
+		return
+	var generatore: Rng = rng
+	if generatore == null:
+		generatore = Rng.new(get_instance_id())
+	if generatore.chance(PROBABILITA_OGGETTO):
+		var item := ItemGenerator.roll(generatore, maxi(1, livello))
+		GroundItem.spawn(parent, global_position, item)
+		EventBus.item_dropped.emit(item)
+	elif generatore.chance(PROBABILITA_ORO):
+		GoldPickup.spawn(parent, global_position, generatore.randi_range(1, 3))
 
 func _break_apart(direction: Vector2) -> void:
 	var parent := get_parent()

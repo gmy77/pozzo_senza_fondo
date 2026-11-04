@@ -26,6 +26,7 @@ var has_target: bool = false
 var attack_target: Entity = null
 var gold: int = 0
 var inventory: Inventory
+var equipment: Equipment
 
 var _marker_pos: Vector2 = Vector2.ZERO
 var _marker_alpha: float = 0.0
@@ -47,6 +48,10 @@ func _ready() -> void:
 	stats = Stats.new(12, 12, 8, 12)
 	setup_vitals()
 	inventory = Inventory.new()
+	equipment = Equipment.new()
+	# L'equipaggiamento cambia vita massima e velocita': il ricalcolo passa dall'evento,
+	# cosi' il pannello non deve conoscere il giocatore per aggiornarlo.
+	EventBus.equipment_changed.connect(aggiorna_vitali)
 	add_child(SceneFactory.circle_shape(RADIO_CORPO))
 
 	agent = NavigationAgent2D.new()
@@ -88,7 +93,7 @@ func _physics_process(delta: float) -> void:
 		if direction == Vector2.ZERO and agent.is_navigation_finished():
 			has_target = false
 
-	apply_motion(direction, stats.move_speed(), delta)
+	apply_motion(direction, velocita(), delta)
 	if _marker_alpha > 0.0:
 		_marker_alpha = maxf(0.0, _marker_alpha - delta * 1.8)
 	queue_redraw()
@@ -199,9 +204,9 @@ func _try_attack(delta: float) -> bool:
 	return true
 
 func _swing_hit() -> void:
-	var crit_chance := 0.08 + float(stats.dexterity) * 0.004
+	var crit_chance := 0.08 + float(destrezza()) * 0.004 + float(equipment.bonus(Affix.Tipo.CRITICO)) * 0.01
 	var crit := randf() < crit_chance
-	var amount := int(round(6.0 + float(stats.strength) * 0.75))
+	var amount := danno_fendente()
 	if crit:
 		amount = int(round(float(amount) * 1.8))
 	var dmg := Damage.make(amount, Damage.Kind.FISICO, facing, 150.0, crit)
@@ -228,8 +233,65 @@ func _enemy_at(point: Vector2) -> Entity:
 			best = enemy
 	return best
 
+# --- Statistiche derivate: base del personaggio piu' quello che ha addosso ---
+
+func forza() -> int:
+	return stats.strength + equipment.bonus(Affix.Tipo.FORZA)
+
+func destrezza() -> int:
+	return stats.dexterity + equipment.bonus(Affix.Tipo.DESTREZZA)
+
+func vitalita() -> int:
+	return stats.vitality + equipment.bonus(Affix.Tipo.VITALITA)
+
+func velocita() -> float:
+	return GameConsts.VELOCITA_BASE + float(destrezza()) * GameConsts.VELOCITA_PER_DESTREZZA + float(equipment.bonus(Affix.Tipo.VELOCITA))
+
+# Danno di un fendente: pugno nudo piu' forza, piu' l'arma e gli affissi di danno.
+func danno_fendente() -> int:
+	return int(round(6.0 + float(forza()) * 0.75)) + equipment.danno()
+
+func difesa() -> int:
+	return equipment.difesa()
+
+# Vita massima: base + vitalita' indossata + affissi di vita. Se la vita massima cala,
+# la vita corrente viene tagliata, ma non sotto 1: togliersi l'elmo non deve uccidere.
+func aggiorna_vitali() -> void:
+	if stats == null or equipment == null:
+		return
+	var nuovo := 40 + vitalita() * 6 + equipment.bonus(Affix.Tipo.VITA)
+	if nuovo == max_hp:
+		return
+	var differenza := nuovo - max_hp
+	max_hp = nuovo
+	hp = clampi(hp + maxi(0, differenza), 1, max_hp)
+	EventBus.player_hp_changed.emit(hp, max_hp)
+
 func add_gold(amount: int) -> void:
 	gold += amount
+	EventBus.gold_changed.emit(gold)
+
+# --- Sacca: quello che il personaggio si porta dietro anche attraverso la morte ---
+# Regola di progetto: morendo non si perde nessun oggetto. Zaino, cintura ed
+# equipaggiamento sono gli stessi oggetti (stessi uid), non copie.
+func esporta_sacca() -> Dictionary:
+	return {
+		"inventory": inventory,
+		"equipment": equipment,
+		"gold": gold,
+	}
+
+func importa_sacca(sacca: Dictionary) -> void:
+	if sacca.is_empty():
+		return
+	if sacca.has("inventory") and sacca["inventory"] != null:
+		inventory = sacca["inventory"]
+	if sacca.has("equipment") and sacca["equipment"] != null:
+		equipment = sacca["equipment"]
+	gold = int(sacca.get("gold", gold))
+	aggiorna_vitali()
+	EventBus.inventory_changed.emit()
+	EventBus.equipment_changed.emit()
 	EventBus.gold_changed.emit(gold)
 
 # Raccoglie un oggetto se c'e' spazio. Restituisce false se lo zaino e' pieno: il chiamante

@@ -84,27 +84,37 @@ func _unhandled_input(event: InputEvent) -> void:
 func _toggle_inventory() -> void:
 	if world == null or world.player == null:
 		return
-	if inventory_panel.aperto:
-		inventory_panel.chiudi()
-	else:
-		inventory_panel.apri(world.player.inventory)
+	inventory_panel.alterna()
 
 func _setup_inventory() -> void:
 	inventory_panel = InventoryPanel.new()
 	inventory_panel.name = "InventoryPanel"
 	add_child(inventory_panel)
-	inventory_panel.inventory = world.player.inventory
+	inventory_panel.collega(world.player)
 
 func _on_notice(text: String) -> void:
 	notice_text = text
 	notice_left = 2.2
 
+# Morte e ritorno. Regola di progetto: non si perde nessun oggetto. Zaino, cintura ed
+# equipaggiamento passano al corpo nuovo con gli stessi uid; la penalita' e' sull'oro
+# (GameConsts.PENALITA_ORO_MORTE) e sul piano, che si rigenera con tutti i mostri in piedi.
+# Il personaggio riparte dal punto di ritorno della mappa: dalla fase 5 sara' il borgo.
 func _restart() -> void:
+	var sacca: Dictionary = {}
+	if world.player != null:
+		sacca = world.player.esporta_sacca()
+		var oro: int = int(sacca.get("gold", 0))
+		var perso := int(floor(float(oro) * GameConsts.PENALITA_ORO_MORTE))
+		sacca["gold"] = oro - perso
+		if perso > 0:
+			EventBus.notice.emit("Sei morto: hai perso %d oro, gli oggetti no" % perso)
 	inventory_panel.chiudi()
 	world.clear()
 	await get_tree().physics_frame
 	world.build_test_room(_seed_value())
-	inventory_panel.inventory = world.player.inventory
+	world.player.importa_sacca(sacca)
+	inventory_panel.collega(world.player)
 	state = AppState.PLAY
 	EventBus.app_state_changed.emit(int(state))
 

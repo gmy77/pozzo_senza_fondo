@@ -54,6 +54,8 @@ static func _spawn_props(parent: Node2D, rng: Rng) -> Array[PropBody]:
 static func _make_prop(parent: Node2D, kind: PropBody.Kind, cell: Vector2i, rng: Rng) -> PropBody:
 	var prop := PropBody.new()
 	prop.setup(kind, rng.randf_range(0.0, 0.05))
+	prop.rng = rng
+	prop.livello = 1
 	parent.add_child(prop)
 	prop.global_position = FloorBuilder.cell_bottom(cell) + Vector2(rng.randf_range(-4.0, 4.0), -2.0)
 	return prop

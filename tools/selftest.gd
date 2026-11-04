@@ -295,6 +295,209 @@ static func run(main: Main) -> void:
 		world.enemies.erase(walker)
 		walker.queue_free()
 
+	# =====================================================================
+	# Fase 3: oggetti, inventario, equipaggiamento, morte senza perdite
+	# =====================================================================
+
+	var avvisi: Array[String] = []
+	EventBus.notice.connect(func(testo: String) -> void: avvisi.append(testo))
+
+	# --- Generatore: forme ammesse, affissi coerenti, nome e valore sempre presenti ---
+	var rng_prova := Rng.new(987654)
+	var forme_ammesse: Array[Vector2i] = [
+		Vector2i(1, 1), Vector2i(1, 2), Vector2i(1, 3),
+		Vector2i(2, 2), Vector2i(2, 3), Vector2i(2, 4),
+	]
+	var forme_ok := true
+	var affissi_ok := true
+	var dati_ok := true
+	for i in 150:
+		var generato := ItemGenerator.roll(rng_prova, 1 + i % 12)
+		if not forme_ammesse.has(generato.size()):
+			forme_ok = false
+		if generato.valore() <= 0 or generato.nome().is_empty():
+			dati_ok = false
+		var quanti_affissi := generato.affissi.size()
+		match generato.rarita:
+			Item.Rarita.NORMALE:
+				if quanti_affissi != 0:
+					affissi_ok = false
+			Item.Rarita.MAGICO:
+				if quanti_affissi < 1 or quanti_affissi > 2:
+					affissi_ok = false
+			Item.Rarita.RARO:
+				if quanti_affissi < 2 or quanti_affissi > 3:
+					affissi_ok = false
+	failures += _check(forme_ok, "150 oggetti generati hanno solo forme ammesse", notes)
+	failures += _check(affissi_ok, "numero di affissi coerente con la rarita'", notes)
+	failures += _check(dati_ok, "ogni oggetto generato ha nome e valore", notes)
+
+	# --- Griglia e pannello: si parte da uno stato noto ---
+	var panel: InventoryPanel = main.inventory_panel
+	var inv: Inventory = player.inventory
+	inv.oggetti.clear()
+	for s in player.equipment.numero_slot():
+		player.equipment.togli(s)
+	panel.collega(player)
+	panel.apri()
+
+	var spadone := Item.new(ItemBase.per_id("spadone"))
+	failures += _check(inv.aggiungi_a(spadone, Vector2i(0, 0)), "lo spadone 2x4 entra in (0,0)", notes)
+
+	# Fuori griglia: 2x4 appoggiato in (9,4) sborda a destra e in basso.
+	panel.prendi(spadone)
+	var fuori := panel.rilascia(panel.punto_cella(Vector2i(9, 4)))
+	failures += _check(
+		not fuori and spadone.pos == Vector2i(0, 0) and inv.oggetti.has(spadone),
+		"oggetto fuori griglia rifiutato e rimesso a posto",
+		notes
+	)
+
+	var elmo := Item.new(ItemBase.per_id("elmo"))
+	failures += _check(inv.aggiungi_a(elmo, Vector2i(5, 0)), "l'elmo 2x2 entra in (5,0)", notes)
+	panel.prendi(elmo)
+	var sovrapposto := panel.rilascia(panel.punto_cella(Vector2i(1, 1)))
+	failures += _check(
+		not sovrapposto and elmo.pos == Vector2i(5, 0) and spadone.pos == Vector2i(0, 0),
+		"oggetto su oggetto rifiutato, nessuna sovrapposizione",
+		notes
+	)
+
+	panel.prendi(elmo)
+	var spostato := panel.rilascia(panel.punto_cella(Vector2i(5, 3)))
+	failures += _check(spostato and elmo.pos == Vector2i(5, 3), "spostamento valido eseguito", notes)
+
+	# --- Chiusura del pannello mentre si trascina ---
+	panel.prendi(elmo)
+	panel.chiudi()
+	failures += _check(
+		panel.trascinato() == null and inv.oggetti.has(elmo) and elmo.pos == Vector2i(5, 3),
+		"chiudere il pannello durante il trascinamento non perde l'oggetto",
+		notes
+	)
+	panel.apri()
+
+	# --- Equipaggiamento: categoria sbagliata rifiutata, giusta accettata ---
+	panel.prendi(spadone)
+	var in_corazza := panel.rilascia(panel.punto_slot(Equipment.Slot.CORAZZA))
+	failures += _check(
+		not in_corazza and player.equipment.oggetto(Equipment.Slot.CORAZZA) == null and inv.oggetti.has(spadone),
+		"arma rifiutata dallo slot della corazza e rimessa nello zaino",
+		notes
+	)
+	panel.prendi(spadone)
+	var in_arma := panel.rilascia(panel.punto_slot(Equipment.Slot.ARMA))
+	failures += _check(
+		in_arma and player.equipment.oggetto(Equipment.Slot.ARMA) == spadone and not inv.oggetti.has(spadone),
+		"arma equipaggiata nello slot dell'arma",
+		notes
+	)
+	panel.prendi(spadone)
+	var tolto := panel.rilascia(panel.punto_cella(Vector2i(0, 0)))
+	failures += _check(
+		tolto and player.equipment.oggetto(Equipment.Slot.ARMA) == null and inv.oggetti.has(spadone),
+		"l'arma si toglie trascinandola nello zaino",
+		notes
+	)
+
+	# --- Danno e difesa cambiano davvero ---
+	var danno_nudo := player.danno_fendente()
+	panel.prendi(spadone)
+	panel.rilascia(panel.punto_slot(Equipment.Slot.ARMA))
+	var danno_armato := player.danno_fendente()
+	failures += _check(danno_armato > danno_nudo, "l'arma aumenta il danno (%d -> %d)" % [danno_nudo, danno_armato], notes)
+
+	var colpo := Damage.make(20, Damage.Kind.FISICO, Vector2.RIGHT, 0.0, false)
+	var subito_nudo := player.danno_ridotto(colpo)
+	player.equipment.equipaggia(Equipment.Slot.CORAZZA, Item.new(ItemBase.per_id("corazza_pesante")))
+	player.equipment.equipaggia(Equipment.Slot.ELMO, Item.new(ItemBase.per_id("elmo")))
+	var subito_armato := player.danno_ridotto(colpo)
+	failures += _check(
+		subito_armato < subito_nudo,
+		"la difesa riduce il danno ricevuto (%d -> %d su 20, difesa %d)" % [subito_nudo, subito_armato, player.difesa()],
+		notes
+	)
+	player.hp = player.max_hp
+	var hp_prima_colpo := player.hp
+	player.take_hit(colpo)
+	failures += _check(
+		hp_prima_colpo - player.hp == subito_armato,
+		"il colpo toglie il danno ridotto, non quello pieno (%d)" % (hp_prima_colpo - player.hp),
+		notes
+	)
+	panel.chiudi()
+
+	# --- I barili lasciano oggetti, non solo monete ---
+	for nodo in tree.get_nodes_in_group("ground_item"):
+		nodo.queue_free()
+	await tree.physics_frame
+	for i in 18:
+		var barile := PropBody.new()
+		barile.setup(PropBody.Kind.BARILE, 0.0)
+		barile.rng = rng_prova
+		world.add_child(barile)
+		barile.global_position = FloorBuilder.cell_center(Vector2i(2 + i % 18, 1))
+		barile.take_hit(Damage.make(99, Damage.Kind.FISICO, Vector2.RIGHT, 0.0, false))
+	await tree.physics_frame
+	var da_barili := tree.get_nodes_in_group("ground_item").size()
+	failures += _check(da_barili > 0, "i barili rotti lasciano oggetti (%d su 18)" % da_barili, notes)
+	for nodo in tree.get_nodes_in_group("ground_item"):
+		nodo.queue_free()
+	await tree.physics_frame
+
+	# --- Zaino pieno: l'oggetto resta a terra ---
+	inv.oggetti.clear()
+	for i in Inventory.COLONNE * Inventory.RIGHE:
+		inv.aggiungi(Item.new(ItemBase.per_id("anello")))
+	failures += _check(inv.pieno() and inv.quantita() == 60, "zaino riempito (60 celle su 60)", notes)
+	player.global_position = FloorBuilder.cell_center(Vector2i(11, 8))
+	player.stop()
+	avvisi.clear()
+	var caduto := GroundItem.spawn(world, player.global_position, Item.new(ItemBase.per_id("mazza")))
+	for i in 10:
+		await tree.physics_frame
+	failures += _check(
+		is_instance_valid(caduto) and inv.quantita() == 60 and avvisi.has("Zaino pieno"),
+		"a zaino pieno l'oggetto resta a terra e il gioco lo dice",
+		notes
+	)
+	caduto.queue_free()
+
+	# --- Morte: stessi oggetti, stessi uid, solo l'oro paga ---
+	player.gold = 100
+	var uid_prima: Array[int] = []
+	for item in inv.oggetti:
+		uid_prima.append(item.uid)
+	for item in player.equipment.tutti():
+		uid_prima.append(item.uid)
+	uid_prima.sort()
+	var indossati_prima := player.equipment.quantita()
+
+	player.take_hit(Damage.make(9999, Damage.Kind.FISICO, Vector2.ZERO, 0.0, false))
+	failures += _check(main.state == Main.AppState.DEAD, "il giocatore muore", notes)
+	await main._restart()
+	await tree.physics_frame
+
+	var rinato: Player = world.player
+	var uid_dopo: Array[int] = []
+	for item in rinato.inventory.oggetti:
+		uid_dopo.append(item.uid)
+	for item in rinato.equipment.tutti():
+		uid_dopo.append(item.uid)
+	uid_dopo.sort()
+	failures += _check(
+		uid_dopo == uid_prima,
+		"dopo la morte gli oggetti sono gli stessi (%d uid, %d indossati)" % [uid_dopo.size(), indossati_prima],
+		notes
+	)
+	failures += _check(
+		rinato.equipment.quantita() == indossati_prima,
+		"l'equipaggiamento resta indossato dopo la rinascita",
+		notes
+	)
+	failures += _check(rinato.gold == 95, "penalita' di morte: solo il 5 per cento dell'oro (100 -> %d)" % rinato.gold, notes)
+	failures += _check(rinato.alive and rinato.hp == rinato.max_hp, "si rinasce vivi e con la vita piena (%d/%d)" % [rinato.hp, rinato.max_hp], notes)
+
 	_report(failures, notes)
 	tree.quit(0 if failures == 0 else 1)
 

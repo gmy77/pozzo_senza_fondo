@@ -16,6 +16,12 @@ const TEMPO_LAMPEGGIO: float = 0.14
 # mai: un mostro respinto contro un muro restava a spingere per sempre. Misurato: 0,52 s per
 # fermare un residuo di 720 px/s.
 const FRENATA: float = 1400.0
+# Difesa: curva a rendimento decrescente invece di una sottrazione secca. Con 16 di difesa
+# (elmo + scudo + corazza leggera) il danno fisico cala del 24%, con 50 del 50%, e non
+# scende mai sotto il 25% di quello originale. La sottrazione secca, a questi numeri,
+# avrebbe reso immortali: 16 di difesa contro i 6 danni di uno scheletro vuol dire 1 fisso.
+const COSTANTE_DIFESA: float = 50.0
+const RIDUZIONE_MASSIMA: float = 0.75
 
 var stats: Stats
 var hp: int = 1
@@ -89,11 +95,26 @@ func apply_knockback(direction: Vector2, force: float, seconds: float = 0.16) ->
 	_knockback = direction.normalized() * force
 	stagger = seconds
 
+# Difesa totale di chi riceve il colpo. Entity non ha equipaggiamento: lo sovrascrive chi
+# ce l'ha (il giocatore adesso, i campioni e i boss in fase 6).
+func difesa() -> int:
+	return 0
+
+func danno_ridotto(dmg: Damage) -> int:
+	var dif := difesa()
+	# Solo il danno fisico e' fermato dall'armatura. Fuoco, gelo e veleno avranno le
+	# resistenze, che sono un'altra statistica e non questa.
+	if dif <= 0 or dmg.kind != Damage.Kind.FISICO:
+		return dmg.amount
+	var riduzione := minf(RIDUZIONE_MASSIMA, float(dif) / (float(dif) + COSTANTE_DIFESA))
+	return maxi(1, int(round(float(dmg.amount) * (1.0 - riduzione))))
+
 func take_hit(dmg: Damage) -> int:
 	if not alive or dmg == null:
 		return 0
-	var applied := mini(dmg.amount, hp)
-	hp = maxi(0, hp - dmg.amount)
+	var subito := danno_ridotto(dmg)
+	var applied := mini(subito, hp)
+	hp = maxi(0, hp - subito)
 	_flash = TEMPO_LAMPEGGIO
 	if dmg.knockback > 0.0:
 		apply_knockback(dmg.direction, dmg.knockback)
