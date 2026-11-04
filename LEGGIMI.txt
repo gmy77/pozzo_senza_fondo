@@ -1,0 +1,85 @@
+===============================================================
+  IL POZZO SENZA FONDO
+  action RPG 2D - stato: fase 3 di 7
+===============================================================
+
+COME SI GIOCA SUBITO
+--------------------
+Doppio clic su   PozzoSenzaFondo.exe
+Non serve installare niente: Windows 64 bit e basta.
+Se Windows mostra "PC protetto da SmartScreen", e' perche' il file
+non ha una firma digitale a pagamento: "Ulteriori informazioni" ->
+"Esegui comunque".
+
+Dal menu: NUOVA PARTITA.
+
+
+COMANDI
+-------
+  WASD .................. muoversi
+  clic sinistro ......... vai dove indichi.
+                          Tenuto premuto: continui a camminare.
+                          Su uno scheletro: lo insegui e lo colpisci
+                          finche' tieni premuto e lui e' vivo.
+  I ..................... zaino ed equipaggiamento
+  ESC ................... menu (riprendi, salva, carica, titolo, esci)
+  R ..................... se sei morto, riparti
+
+
+LO ZAINO
+--------
+Griglia 10x6. Gli oggetti NON ruotano: ogni pezzo ha una misura
+fissa (da 1x1 a 2x4). Si trascina con il mouse.
+A sinistra c'e' il manichino: trascina un pezzo sullo slot giusto
+per indossarlo. Un'arma non entra nello slot della corazza, e un
+oggetto rifiutato torna sempre da dove e' partito: non si perde
+niente, mai.
+La cintura (4 caselle) accetta solo oggetti 1x1.
+Sotto il manichino leggi quanto fai di danno e quanto para la tua
+difesa.
+
+
+SE MUORI
+--------
+Non perdi nessun oggetto: zaino, cintura ed equipaggiamento restano
+tuoi, esattamente gli stessi. L'unica penalita' e' il 5% dell'oro
+che porti addosso, piu' il piano da rifare con i mostri in piedi.
+
+
+SALVATAGGIO
+-----------
+Menu (ESC) -> SALVA PARTITA. Uno slot solo, per ora.
+Il file sta in:
+  %APPDATA%\Godot\app_userdata\Il Pozzo Senza Fondo\salvataggio_1.json
+E' leggibile: se ci metti le mani e lo rompi, il gioco rifiuta di
+caricarlo invece di partire a meta'. Accanto resta sempre la copia
+.bak dell'ultimo salvataggio buono.
+
+
+COSA C'E' DENTRO, DAVVERO
+-------------------------
+Una sola stanza di prova: tre scheletri, barili e casse che si
+rompono (e a volte lasciano qualcosa), oro, oggetti casuali con
+affissi, un corridoio stretto per provare l'inseguimento.
+Tutta la grafica e' disegnata dal codice: niente immagini, niente
+suoni. Non c'e' ancora audio.
+
+NON c'e' ancora (fasi 4-7):
+  - il dungeon vero con 16 piani, le scale e la nebbia di guerra
+  - il borgo, gli NPC, i negozi
+  - le quest, i boss, le altre due classi
+  - esperienza e livelli
+  - la mappa e l'audio
+
+Bilanciamento non tarato: e' una prova giocabile, non un gioco
+finito.
+
+
+CARTELLA "sorgenti"
+-------------------
+C'e' tutto il progetto Godot, se vuoi guardarci dentro o modificarlo.
+  Gioca.bat ... apre il progetto con Godot (lo cerca da solo)
+  Prova.bat ... lancia i 74 controlli automatici
+  docs\ ....... come e' fatto il gioco e perche', numeri misurati
+                e limiti dichiarati
+Serve Godot 4.7 o superiore: https://godotengine.org/download
