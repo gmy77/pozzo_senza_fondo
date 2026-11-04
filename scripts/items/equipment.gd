@@ -35,6 +35,24 @@ const CATEGORIE: Array[int] = [
 
 var _slot: Array[Item] = [null, null, null, null, null, null, null, null, null]
 
+func to_dict() -> Dictionary:
+	var lista: Array = []
+	for item in _slot:
+		lista.append(item.to_dict() if item != null else {})
+	return {"slot": lista}
+
+static func from_dict(dati: Dictionary) -> Equipment:
+	var eq := Equipment.new()
+	var lista: Array = dati.get("slot", [])
+	for i in mini(lista.size(), eq._slot.size()):
+		var voce: Dictionary = lista[i]
+		if voce.is_empty():
+			continue
+		var item := Item.from_dict(voce)
+		if item != null:
+			eq.equipaggia(i, item)
+	return eq
+
 func numero_slot() -> int:
 	return _slot.size()
 

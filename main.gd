@@ -5,7 +5,7 @@
 class_name Main
 extends Node2D
 
-enum AppState { BOOT, PLAY, PAUSE, DEAD }
+enum AppState { BOOT, MENU, PLAY, PAUSE, DEAD }
 
 const MAPPA_INPUT: Dictionary = {
 	"move_up": KEY_W,
@@ -18,32 +18,54 @@ var state: AppState = AppState.BOOT
 var world: WorldRoot
 var overlay: Label
 var inventory_panel: InventoryPanel
+var menu: MainMenu
 var notice_text: String = ""
 var notice_left: float = 0.0
 
 func _ready() -> void:
+	# Main e il menu girano anche a gioco fermo; il mondo no. Senza questa riga la pausa
+	# bloccherebbe anche chi deve toglierla.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+
 	_setup_input()
 	_setup_overlay()
 
 	world = WorldRoot.new()
 	world.name = "WorldRoot"
+	world.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(world)
 	world.build_test_room(_seed_value())
 	_apply_debug_pose()
 	_setup_inventory()
+	_setup_menu()
 
-	state = AppState.PLAY
-	EventBus.app_state_changed.emit(int(state))
 	EventBus.player_died.connect(_on_player_died)
 	EventBus.notice.connect(_on_notice)
 
 	if OS.get_environment("POZZO_SELFTEST") == "1":
+		# Il selftest gioca da solo: niente menu e niente pausa, altrimenti i frame fisici
+		# che aspetta non arriverebbero mai.
+		state = AppState.PLAY
+		EventBus.app_state_changed.emit(int(state))
 		await Selftest.run(self)
+		return
+
+	if OS.get_environment("POZZO_ZAINO") == "1":
+		# Gancio per le fotografie della UI: si parte in gioco, non al titolo.
+		state = AppState.PLAY
+		EventBus.app_state_changed.emit(int(state))
+		return
+
+	apri_menu(MainMenu.Modo.TITOLO)
 
 func _process(delta: float) -> void:
 	if notice_left > 0.0:
 		notice_left = maxf(0.0, notice_left - delta)
 	if overlay == null or world == null or world.player == null:
+		return
+	# Col menu aperto l'HUD di debug non serve e sporca il titolo.
+	overlay.visible = state != AppState.MENU
+	if not overlay.visible:
 		return
 	var pos := world.player.global_position
 	var cell := Vector2i(
@@ -53,7 +75,7 @@ func _process(delta: float) -> void:
 	var player := world.player
 	if inventory_panel != null:
 		inventory_panel.oro = player.gold
-	var hint := "WASD o clic per muoversi e attaccare, I per lo zaino"
+	var hint := "WASD o clic per muoversi e attaccare, I per lo zaino, ESC per il menu"
 	if state == AppState.DEAD:
 		hint = "SEI MORTO - premi R per ricominciare"
 	elif notice_left > 0.0:
@@ -75,8 +97,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_I:
 			_toggle_inventory()
 		KEY_ESCAPE:
+			# ESC chiude prima quello che e' aperto: lo zaino, poi il gioco stesso.
 			if inventory_panel != null and inventory_panel.aperto:
 				inventory_panel.chiudi()
+			elif state == AppState.PLAY or state == AppState.DEAD:
+				apri_menu(MainMenu.Modo.PAUSA)
 		KEY_R:
 			if state == AppState.DEAD:
 				_restart()
@@ -113,6 +138,84 @@ func _zaino_di_prova() -> void:
 func _on_notice(text: String) -> void:
 	notice_text = text
 	notice_left = 2.2
+
+# --- Menu: titolo all'avvio, pausa in partita ---
+
+func _setup_menu() -> void:
+	menu = MainMenu.new()
+	menu.name = "MainMenu"
+	add_child(menu)
+	menu.azione.connect(_on_menu)
+
+func apri_menu(modo: MainMenu.Modo) -> void:
+	if inventory_panel != null:
+		inventory_panel.chiudi()
+	menu.apri(modo, GameState.esiste(GameState.SLOT_PREDEFINITO))
+	get_tree().paused = true
+	state = AppState.MENU
+	EventBus.app_state_changed.emit(int(state))
+
+func chiudi_menu() -> void:
+	menu.chiudi()
+	get_tree().paused = false
+	state = AppState.PLAY
+	EventBus.app_state_changed.emit(int(state))
+
+func _on_menu(nome: String) -> void:
+	match nome:
+		"nuova":
+			await nuova_partita()
+		"continua", "carica":
+			await carica_partita(GameState.SLOT_PREDEFINITO)
+		"riprendi":
+			chiudi_menu()
+		"salva":
+			salva_partita(GameState.SLOT_PREDEFINITO)
+			chiudi_menu()
+		"titolo":
+			apri_menu(MainMenu.Modo.TITOLO)
+		"esci":
+			get_tree().quit()
+
+# --- Partita: nuova, salva, carica ---
+
+func nuova_partita() -> void:
+	inventory_panel.chiudi()
+	world.clear()
+	await get_tree().process_frame
+	world.build_test_room(_seed_value())
+	inventory_panel.collega(world.player)
+	chiudi_menu()
+
+func salva_partita(slot: int) -> bool:
+	if world.player == null:
+		return false
+	var dati := {
+		"seed": _seed_value(),
+		"giocatore": world.player.dati_salvataggio(),
+	}
+	var riuscito := GameState.salva(slot, dati)
+	EventBus.notice.emit("Partita salvata" if riuscito else "Salvataggio fallito")
+	if riuscito:
+		EventBus.game_saved.emit(slot)
+	return riuscito
+
+func carica_partita(slot: int) -> bool:
+	var dati := GameState.carica(slot)
+	if dati.is_empty():
+		EventBus.notice.emit("Nessun salvataggio da caricare")
+		return false
+	inventory_panel.chiudi()
+	world.clear()
+	await get_tree().process_frame
+	world.build_test_room(int(dati.get("seed", _seed_value())))
+	world.player.applica_salvataggio(dati.get("giocatore", {}))
+	inventory_panel.collega(world.player)
+	if menu.aperto:
+		chiudi_menu()
+	EventBus.game_loaded.emit(slot)
+	EventBus.notice.emit("Partita caricata")
+	return true
 
 # Morte e ritorno. Regola di progetto: non si perde nessun oggetto. Zaino, cintura ed
 # equipaggiamento passano al corpo nuovo con gli stessi uid; la penalita' e' sull'oro

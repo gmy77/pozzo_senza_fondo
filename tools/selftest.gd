@@ -487,6 +487,77 @@ static func run(main: Main) -> void:
 	)
 	caduto.queue_free()
 
+	# --- Salvataggio su file: stessi oggetti, stesso oro, stessa posizione ---
+	var slot := 9
+	GameState.cancella(slot)
+	failures += _check(not GameState.esiste(slot), "lo slot di prova parte vuoto", notes)
+
+	player.gold = 321
+	var posto_salvato := FloorBuilder.cell_center(Vector2i(6, 8))
+	player.global_position = posto_salvato
+	player.stop()
+	var uid_salvati: Array[int] = []
+	for item in player.inventory.oggetti:
+		uid_salvati.append(item.uid)
+	for item in player.equipment.tutti():
+		uid_salvati.append(item.uid)
+	uid_salvati.sort()
+
+	failures += _check(main.salva_partita(slot), "la partita si salva su file", notes)
+	failures += _check(GameState.esiste(slot), "il file di salvataggio esiste", notes)
+
+	# Si rovina lo stato di proposito: se il caricamento non funzionasse, il test lo vedrebbe.
+	player.gold = 0
+	player.inventory.oggetti.clear()
+	var caricata: bool = await main.carica_partita(slot)
+	player = world.player
+	inv = player.inventory
+	var uid_ripresi: Array[int] = []
+	for item in inv.oggetti:
+		uid_ripresi.append(item.uid)
+	for item in player.equipment.tutti():
+		uid_ripresi.append(item.uid)
+	uid_ripresi.sort()
+	failures += _check(caricata and uid_ripresi == uid_salvati, "il caricamento riporta gli stessi uid (%d)" % uid_ripresi.size(), notes)
+	failures += _check(player.gold == 321, "il caricamento riporta l'oro (%d)" % player.gold, notes)
+	failures += _check(
+		player.global_position.distance_to(posto_salvato) < 2.0,
+		"il caricamento riporta la posizione (%.0f px di scarto)" % player.global_position.distance_to(posto_salvato),
+		notes
+	)
+	failures += _check(
+		GameState.carica(slot).get("versione", 0) == GameState.VERSIONE,
+		"il file salvato dichiara la versione del formato",
+		notes
+	)
+	GameState.cancella(slot)
+	failures += _check(not GameState.esiste(slot), "lo slot di prova si cancella", notes)
+
+	# --- Menu: voci spente, navigazione, azione emessa ---
+	# Si stacca Main dal segnale: qui si prova il menu, non si vuole far ripartire il mondo.
+	main.menu.azione.disconnect(main._on_menu)
+	var azioni_viste: Array[String] = []
+	main.menu.azione.connect(func(nome: String) -> void: azioni_viste.append(nome))
+
+	main.menu.apri(MainMenu.Modo.TITOLO, GameState.esiste(slot))
+	failures += _check(main.menu.voci().size() == 3, "il menu del titolo ha tre voci", notes)
+	failures += _check(not main.menu.voce_attiva(1), "senza salvataggio la voce Continua e' spenta", notes)
+	main.menu.selezione = 0
+	main.menu.muovi(1)
+	failures += _check(main.menu.selezione == 2, "la navigazione salta la voce spenta (selezione %d)" % main.menu.selezione, notes)
+	main.menu.selezione = 1
+	main.menu.attiva()
+	failures += _check(azioni_viste.is_empty(), "una voce spenta non fa niente", notes)
+	main.menu.selezione = 0
+	main.menu.attiva()
+	failures += _check(azioni_viste == ["nuova"], "il menu emette l'azione scelta", notes)
+
+	main.menu.apri(MainMenu.Modo.PAUSA, true)
+	failures += _check(main.menu.voci().size() == 5 and main.menu.voce_attiva(1), "il menu di pausa ha cinque voci e si puo' salvare", notes)
+	main.menu.chiudi()
+	failures += _check(not main.menu.aperto and not main.menu.visible, "il menu si chiude", notes)
+	main.menu.azione.connect(main._on_menu)
+
 	# --- Morte: stessi oggetti, stessi uid, solo l'oro paga ---
 	player.gold = 100
 	var uid_prima: Array[int] = []
@@ -521,6 +592,24 @@ static func run(main: Main) -> void:
 	)
 	failures += _check(rinato.gold == 95, "penalita' di morte: solo il 5 per cento dell'oro (100 -> %d)" % rinato.gold, notes)
 	failures += _check(rinato.alive and rinato.hp == rinato.max_hp, "si rinasce vivi e con la vita piena (%d/%d)" % [rinato.hp, rinato.max_hp], notes)
+
+	# --- Il menu mette davvero in pausa il mondo ---
+	# Non basta disegnarci sopra un velo: se i mostri continuano a camminare, aprire il
+	# menu in mezzo a un combattimento e' una condanna a morte.
+	var sentinella: Enemy = world.enemies[0]
+	sentinella.alert()
+	main.apri_menu(MainMenu.Modo.PAUSA)
+	var dove_era := sentinella.global_position
+	for i in 20:
+		await tree.physics_frame
+	var mosso_in_pausa := sentinella.global_position.distance_to(dove_era)
+	main.chiudi_menu()
+	for i in 30:
+		await tree.physics_frame
+	var mosso_dopo := sentinella.global_position.distance_to(dove_era)
+	failures += _check(mosso_in_pausa < 0.5, "con il menu aperto il mondo e' fermo (%.2f px)" % mosso_in_pausa, notes)
+	failures += _check(mosso_dopo > 5.0, "chiuso il menu il mondo riparte (%.1f px)" % mosso_dopo, notes)
+	failures += _check(main.state == Main.AppState.PLAY and not tree.paused, "uscendo dal menu si torna in gioco", notes)
 
 	_report(failures, notes)
 	tree.quit(0 if failures == 0 else 1)

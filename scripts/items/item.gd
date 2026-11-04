@@ -38,6 +38,44 @@ func _init(p_base: ItemBase) -> void:
 	uid = _prossimo_uid
 	_prossimo_uid += 1
 
+# Un oggetto caricato da file deve tenersi il suo uid, altrimenti due oggetti diversi
+# potrebbero finire con lo stesso numero: il contatore va spinto oltre quelli gia' usati.
+static func registra_uid(usato: int) -> void:
+	if usato >= _prossimo_uid:
+		_prossimo_uid = usato + 1
+
+func to_dict() -> Dictionary:
+	var lista: Array = []
+	for affisso in affissi:
+		lista.append(affisso.to_dict())
+	return {
+		"base": base.id,
+		"rarita": int(rarita),
+		"livello": livello,
+		"pos_x": pos.x,
+		"pos_y": pos.y,
+		"cintura": cintura,
+		"uid": uid,
+		"affissi": lista,
+	}
+
+# Restituisce null se la forma base non esiste piu': meglio perdere un oggetto di un
+# salvataggio vecchio che caricare una partita con un oggetto senza dimensioni.
+static func from_dict(dati: Dictionary) -> Item:
+	var base_salvata := ItemBase.per_id(String(dati.get("base", "")))
+	if base_salvata == null:
+		return null
+	var item := Item.new(base_salvata)
+	item.rarita = clampi(int(dati.get("rarita", 0)), 0, NOMI_RARITA.size() - 1) as Rarita
+	item.livello = maxi(1, int(dati.get("livello", 1)))
+	item.pos = Vector2i(int(dati.get("pos_x", 0)), int(dati.get("pos_y", 0)))
+	item.cintura = int(dati.get("cintura", -1))
+	item.uid = int(dati.get("uid", item.uid))
+	registra_uid(item.uid)
+	for voce in dati.get("affissi", []):
+		item.affissi.append(Affix.from_dict(voce))
+	return item
+
 func size() -> Vector2i:
 	return base.size
 

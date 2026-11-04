@@ -281,6 +281,38 @@ func esporta_sacca() -> Dictionary:
 		"gold": gold,
 	}
 
+# --- Salvataggio: tutto quello che distingue questo personaggio da uno appena creato ---
+func dati_salvataggio() -> Dictionary:
+	return {
+		"hp": hp,
+		"oro": gold,
+		"pos_x": global_position.x,
+		"pos_y": global_position.y,
+		"stats": stats.to_dict(),
+		"inventario": inventory.to_dict(),
+		"equipaggiamento": equipment.to_dict(),
+	}
+
+func applica_salvataggio(dati: Dictionary) -> void:
+	if dati.is_empty():
+		return
+	stats = Stats.from_dict(dati.get("stats", {}))
+	inventory = Inventory.from_dict(dati.get("inventario", {}))
+	equipment = Equipment.from_dict(dati.get("equipaggiamento", {}))
+	gold = int(dati.get("oro", 0))
+	# Azzerare max_hp costringe aggiorna_vitali() a ricalcolare da zero con le statistiche
+	# e gli affissi appena caricati, invece di partire dal corpo nuovo.
+	max_hp = 0
+	aggiorna_vitali()
+	hp = clampi(int(dati.get("hp", max_hp)), 1, max_hp)
+	if dati.has("pos_x") and dati.has("pos_y"):
+		global_position = Vector2(float(dati["pos_x"]), float(dati["pos_y"]))
+	stop()
+	EventBus.player_hp_changed.emit(hp, max_hp)
+	EventBus.gold_changed.emit(gold)
+	EventBus.inventory_changed.emit()
+	EventBus.equipment_changed.emit()
+
 func importa_sacca(sacca: Dictionary) -> void:
 	if sacca.is_empty():
 		return

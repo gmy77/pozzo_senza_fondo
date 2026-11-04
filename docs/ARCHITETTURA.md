@@ -510,11 +510,58 @@ Borgo base: **Pietrasalda**. Livello 1 → 4 per area, mostri da livello 1 a 16.
 
 ## 8. Salvataggio
 
-`user://save_1.json`, campo `version` per migrare. Contenuto: seed della run, classe,
-livello, xp, punti assegnati, oro, area/piano, posizione, inventario (lista di oggetti
-serializzati), equipaggiamento, cintura, quest, flag del mondo, boss uccisi.
-Scrittura atomica: si scrive su `save_1.json.tmp` e si rinomina, per non corrompere il
-salvataggio se il gioco viene chiuso a meta'.
+Previsto per la fase 7, **anticipato alla fase 3** perche' un menu con la voce "Salva
+partita" che non salva e' una bugia, e in questo progetto le voci finte non si scrivono.
+
+`user://salvataggio_1.json`, campo `versione` (oggi 1). Un salvataggio di versione diversa
+viene **rifiutato**, non indovinato: caricare a meta' e' peggio che non caricare.
+
+Contenuto di oggi: seed del piano, vita, oro, posizione, statistiche, inventario completo
+(ogni oggetto con base, rarita', livello, affissi, posizione nella griglia o slot della
+cintura e **uid**), equipaggiamento (nove slot). Arriveranno con le fasi rispettive:
+classe, xp, punti assegnati, area/piano, quest, flag del mondo, boss uccisi.
+
+Scrittura in due mosse, in `GameState.salva()`:
+
+1. si scrive tutto su `salvataggio_1.json.tmp`;
+2. il file buono diventa `salvataggio_1.json.bak`;
+3. il temporaneo prende il nome definitivo.
+
+Se il gioco muore durante il punto 1 il salvataggio vecchio e' intatto; se muore tra il 2 e
+il 3 resta il `.bak`. La rinomina secca su file esistente non si puo' usare: su Windows
+fallisce invece di sovrascrivere.
+
+**Gli uid si conservano.** `Item.registra_uid()` spinge il contatore oltre il numero piu'
+alto letto da file, altrimenti un oggetto nuovo potrebbe nascere con l'uid di uno caricato.
+Il selftest confronta la lista ordinata degli uid prima del salvataggio e dopo il
+caricamento: devono essere identici.
+
+---
+
+## 8bis. Menu
+
+`MainMenu` e' un `CanvasLayer` (layer 30, sopra lo zaino che sta a 20) disegnato a mano come
+tutto il resto: niente tema, niente `Button`, niente scena. Due modi:
+
+| Modo | Voci |
+|---|---|
+| Titolo (all'avvio) | NUOVA PARTITA, CONTINUA, ESCI |
+| Pausa (ESC in gioco) | RIPRENDI, SALVA PARTITA, CARICA PARTITA, TORNA AL TITOLO, ESCI |
+
+"CONTINUA" e "CARICA PARTITA" sono **spente** quando non c'e' un salvataggio: grigie, non
+selezionabili, e le frecce le saltano. Sotto le voci compare la riga del salvataggio (data,
+oro, numero di oggetti), cosi' si sa cosa si sta per caricare.
+
+Il menu non decide niente: emette `azione(nome)` e `Main` esegue. Si usa con mouse (hover e
+clic) o tastiera (frecce o W/S, Invio, ESC). Mentre e' aperto **mangia tutti i tasti**:
+senza quella regola la I aprirebbe lo zaino dietro al menu.
+
+**La pausa e' vera.** `get_tree().paused = true`, con `WorldRoot` marcato
+`PROCESS_MODE_PAUSABLE` e `Main` piu' il menu marcati `PROCESS_MODE_ALWAYS` (chi deve
+togliere la pausa non puo' essere in pausa). Misurato dal selftest con uno scheletro che
+sta inseguendo: **0,00 px** percorsi con il menu aperto, **56 px** nei 30 frame successivi
+alla chiusura. Disegnare un velo sopra al gioco senza fermarlo sarebbe stato una condanna a
+morte per chi apre il menu durante un combattimento.
 
 ---
 
@@ -608,11 +655,11 @@ liberato, i contenitori no. `Main._restart()` applica la penalita' e ricollega i
 |---|---|---|---|
 | 1 | `main.gd`, `main.tscn`, `project.godot`, `autoload/event_bus.gd`, `scripts/core/{constants,rng,art,scene_factory}.gd`, `scripts/combat/stats.gd`, `scripts/entities/{entity,player}.gd`, `scripts/world/{world_root,floor_builder,floor_painter,wall_block,prop_body,test_room}.gd`, `tools/selftest.gd` | stanza con muri, barili fisici, movimento click e WASD, telecamera, occlusione dei muri alti | **fatta**, 11 controlli headless verdi |
 | 2 | `scripts/combat/{damage,hitbox}.gd`, `scripts/entities/{entity,enemy}.gd`, `scripts/entities/enemies/skeleton.gd`, `scripts/fx/damage_number.gd`, `scripts/world/gold_pickup.gd` | scheletro con FSM, colpi, numeri, morte, oro, tasto tenuto premuto, contraccolpo su muro, corridoio affollato | **fatta**, 29 controlli headless verdi |
-| 3 | `scripts/items/{item_base,affix,item,item_generator,inventory,equipment}.gd`, `scripts/world/ground_item.gd`, `scripts/ui/{inventory_panel,tooltip}.gd` | loot casuale da mostri e barili, oggetti a terra, griglia con drag & drop, manichino, morte senza perdita di oggetti | **fatta**, 56 controlli headless verdi |
+| 3 | `scripts/items/{item_base,affix,item,item_generator,inventory,equipment}.gd`, `scripts/world/ground_item.gd`, `scripts/ui/{inventory_panel,tooltip}.gd` | loot casuale da mostri e barili, oggetti a terra, griglia con drag & drop, manichino, morte senza perdita di oggetti, menu e salvataggio | **fatta**, 74 controlli headless verdi |
 | 4 | `dungeon_generator.gd`, `dungeon_floor.gd`, `fog_of_war.gd`, `lighting.gd`, mostri 2-6 | 4 piani della Cripta, scale, nebbia, luce | da fare |
 | 5 | `village.gd`, `npc.gd`, `ui/dialog_panel.gd`, `ui/shop_panel.gd`, `equipment.gd` | borgo con 4 NPC, compravendita, riparazione, identificazione | da fare |
 | 6 | `quests.gd`, `quest_manager.gd`, `bosses/*`, classi Arciera e Mago, `projectile.gd` | quest attive, boss con pattern, frecce e palle di fuoco | da fare |
-| 7 | `ui/hud.gd`, `ui/minimap.gd`, `game_state.gd` (salvataggi), `audio/*`, bilanciamento | HUD completo, F5/F9, audio, curva di difficolta' | da fare |
+| 7 | `ui/hud.gd`, `ui/minimap.gd`, `audio/*`, bilanciamento | HUD completo, F5/F9, audio, curva di difficolta' | da fare (`game_state.gd` gia' fatto in fase 3 col menu) |
 
 ---
 
@@ -636,6 +683,11 @@ liberato, i contenitori no. `Main._restart()` applica la penalita' e ricollega i
   l'armatura ferma solo il fisico.
 - **Niente pozioni.** La cintura accetta gli 1x1 ma non c'e' ancora niente da bere: le
   pozioni arrivano col borgo (fase 5), che e' anche dove si comprano.
+- **Menu e salvataggio: uno slot solo.** Il formato ne regge quanti se ne vuole
+  (`salvataggio_N.json`), ma il menu usa solo lo slot 1 e non c'e' una schermata di scelta.
+  Niente opzioni (volume, risoluzione, tasti): sarebbe una voce senza niente dietro finche'
+  non c'e' l'audio, cioe' fase 7. Il salvataggio registra quello che esiste oggi: quando
+  arriveranno classi, xp e quest, `VERSIONE` passa a 2 e i vecchi file vengono rifiutati.
 - **16 piani + 4 boss + 3 classi + 6 quest** e' un volume grande: le fasi 6 e 7 saranno
   le piu' lunghe. Se una fase rischia di sfondare la lunghezza della risposta, la spezzo
   su piu' file completi e ti scrivo CONTINUA.

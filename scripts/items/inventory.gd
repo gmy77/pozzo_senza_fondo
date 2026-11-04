@@ -12,6 +12,30 @@ const SLOT_CINTURA: int = 4
 
 var oggetti: Array[Item] = []
 
+func to_dict() -> Dictionary:
+	var lista: Array = []
+	for item in oggetti:
+		lista.append(item.to_dict())
+	return {"oggetti": lista}
+
+# Ricostruisce la griglia rispettando le posizioni salvate. Se una posizione non e' piu'
+# valida (succede solo se cambiano le misure della griglia) l'oggetto viene sistemato nel
+# primo posto libero: non si butta via niente per un dettaglio di impaginazione.
+static func from_dict(dati: Dictionary) -> Inventory:
+	var inv := Inventory.new()
+	for voce in dati.get("oggetti", []):
+		var item := Item.from_dict(voce)
+		if item == null:
+			continue
+		if item.cintura >= 0:
+			var slot := item.cintura
+			item.cintura = -1
+			if inv.metti_in_cintura(item, slot):
+				continue
+		if not inv.aggiungi_a(item, item.pos):
+			inv.aggiungi(item)
+	return inv
+
 func rect_of(item: Item) -> Rect2i:
 	return Rect2i(item.pos, item.size())
 

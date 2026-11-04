@@ -36,6 +36,15 @@ const BASE: Array[int] = [1, 1, 1, 8, 1, 1, 4, 1]
 var tipo: Tipo = Tipo.FORZA
 var valore: int = 1
 
+func to_dict() -> Dictionary:
+	return {"tipo": int(tipo), "valore": valore}
+
+static func from_dict(dati: Dictionary) -> Affix:
+	var affisso := Affix.new()
+	affisso.tipo = clampi(int(dati.get("tipo", 0)), 0, ETICHETTE.size() - 1) as Tipo
+	affisso.valore = maxi(1, int(dati.get("valore", 1)))
+	return affisso
+
 func etichetta() -> String:
 	return ETICHETTE[int(tipo)]
 
