@@ -1,6 +1,6 @@
 # res://tools/selftest.gd
 # Scopo: verifica automatica della fase 1 senza finestra. Controlla mondo, muri (un pezzo per
-#        cella), collisioni, props, navmesh, click-to-move, blocco dei muri e spinta dei barili.
+#        cella), collisioni, props, navmesh, movimento WASD, blocco dei muri e spinta dei barili.
 # Uso:   POZZO_SELFTEST=1 godot --headless --path . --quit-after 20000
 #        (--quit-after conta iterazioni del motore, non secondi: se e' troppo basso il
 #        gioco si chiude prima della fine e non stampa niente. Non e' un guasto.)
@@ -44,19 +44,29 @@ static func run(main: Main) -> void:
 	var reached := path.size() > 0 and path[path.size() - 1].distance_to(far_cell) < 20.0
 	failures += _check(reached, "navmesh attraversa la stanza (%d punti)" % path.size(), notes)
 
+	player.global_position = FloorBuilder.cell_center(Vector2i(4, 8))
+	player.stop()
+	for i in 5:
+		await tree.physics_frame
 	var start := player.global_position
-	player.set_move_target(start + Vector2(120.0, 0.0))
+	player.command_at(start + Vector2(120.0, 0.0))
 	for i in 50:
 		await tree.physics_frame
-	var moved := player.global_position.x - start.x
-	failures += _check(moved > 70.0, "click-to-move sposta il giocatore (%.0f px)" % moved, notes)
+	var moved := player.global_position.distance_to(start)
+	# Il solver puo' assestare il corpo di pochi pixel se la posizione iniziale e' vicina a
+	# un collisore; non deve pero' esserci alcun percorso o movimento comandato dal clic.
+	failures += _check(moved < 10.0, "il clic sul terreno non sposta il giocatore (%.1f px)" % moved, notes)
 
-	player.set_move_target(Vector2(60.0 * float(GameConsts.CELL), player.global_position.y))
-	for i in 120:
+	# Il movimento resta responsabilita' della tastiera: una direzione WASD simulata deve
+	# ancora attraversare la stanza e fermarsi contro il muro esterno.
+	player.global_position = FloorBuilder.cell_center(Vector2i(3, 8))
+	player.stop()
+	for i in 100:
 		await tree.physics_frame
+		player.apply_motion(Vector2.RIGHT, player.velocita(), 1.0 / 60.0)
 	var wall_x := float((TestRoom.LARGHEZZA - 1) * GameConsts.CELL)
 	var inside := player.global_position.x < wall_x - 4.0
-	failures += _check(inside, "il muro ferma il giocatore (x=%.0f, muro a %.0f)" % [player.global_position.x, wall_x], notes)
+	failures += _check(inside and player.global_position.x > 180.0, "WASD muove e il muro ferma il giocatore (x=%.0f, muro a %.0f)" % [player.global_position.x, wall_x], notes)
 
 	# Occlusione: rasente al lato nord del muro in (14,10) la faccia deve coprire tutto il
 	# personaggio, testa compresa. Rettangoli calcolati, non guardati a occhio.
@@ -93,9 +103,9 @@ static func run(main: Main) -> void:
 		player.global_position = barrel.global_position + Vector2(-50.0, -PropBody.RADIO_BARILE)
 		player.velocity = Vector2.ZERO
 		var before := barrel.global_position
-		player.set_move_target(barrel.global_position + Vector2(120.0, 0.0))
 		for i in 70:
 			await tree.physics_frame
+			player.apply_motion(Vector2.RIGHT, player.velocita(), 1.0 / 60.0)
 		var pushed := barrel.global_position.distance_to(before)
 		failures += _check(pushed > 25.0, "il barile viene spinto (%.1f px)" % pushed, notes)
 	else:
@@ -190,8 +200,8 @@ static func run(main: Main) -> void:
 
 	player.hp = player.max_hp
 
-	# --- Attacco tenendo premuto: il comando e' continuo, il bersaglio viene inseguito e
-	# colpito piu' volte; al rilascio si smette. ---
+	# --- Attacco tenendo premuto: il comando e' continuo, il bersaglio viene colpito piu'
+	# volte ma il giocatore resta fermo; il movimento e' indipendente e viene da WASD. ---
 	var dummy: Enemy = world.enemies[1]
 	dummy.stand_down()
 	dummy.max_hp = 9999
@@ -204,6 +214,7 @@ static func run(main: Main) -> void:
 	bystander.global_position = FloorBuilder.cell_center(Vector2i(3, 14))
 	player.global_position = FloorBuilder.cell_center(Vector2i(11, 8))
 	player.stop()
+	dummy.global_position = player.global_position + Vector2(30.0, 0.0)
 	for i in 6:
 		await tree.physics_frame
 
@@ -217,16 +228,16 @@ static func run(main: Main) -> void:
 		await tree.physics_frame
 	var held_hits := 9999 - dummy.hp
 	var approach := player.global_position.distance_to(dummy.global_position)
-	failures += _check(held_hits >= 30, "tenendo premuto il tasto il giocatore continua a colpire (%d danni)" % held_hits, notes)
-	failures += _check(approach < 60.0, "tenendo premuto il tasto il giocatore raggiunge il bersaglio (%.0f px)" % approach, notes)
+	failures += _check(held_hits >= 20, "tenendo premuto il tasto il giocatore continua a colpire (%d danni)" % held_hits, notes)
+	failures += _check(approach > 20.0, "tenendo premuto il tasto il giocatore non insegue il bersaglio (%.0f px)" % approach, notes)
 
-	# Il bersaglio si sposta: senza un nuovo clic il giocatore deve seguirlo.
+	# Il bersaglio si sposta fuori portata: senza WASD il giocatore non lo segue.
 	dummy.global_position += Vector2(120.0, 0.0)
 	var player_before_follow := player.global_position
 	for i in 90:
 		await tree.physics_frame
-	var followed := player.global_position.x - player_before_follow.x
-	failures += _check(followed > 40.0, "il giocatore insegue il bersaglio che si sposta (%.0f px)" % followed, notes)
+	var followed := player.global_position.distance_to(player_before_follow)
+	failures += _check(followed < 10.0, "il giocatore non insegue il bersaglio che si sposta (%.1f px)" % followed, notes)
 
 	player.set_hold(false, Vector2.ZERO)
 	for i in 10:

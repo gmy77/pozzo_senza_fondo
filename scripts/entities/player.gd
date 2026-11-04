@@ -1,6 +1,6 @@
 # res://scripts/entities/player.gd
-# Scopo: il giocatore. Movimento WASD, click-to-move con NavigationAgent2D, attacco melee
-#        con clic su un nemico (il personaggio ci cammina prima di menare), telecamera con
+# Scopo: il giocatore. Movimento solo WASD, attacco melee con clic su un nemico (il clic
+#        non muove mai il personaggio), telecamera con
 #        smorzamento e limiti di stanza, disegno procedurale di un combattente incappucciato.
 # Dipendenze: entity.gd, stats.gd, damage.gd, hitbox.gd, constants.gd, art.gd, scene_factory.gd
 class_name Player
@@ -81,21 +81,10 @@ func _physics_process(delta: float) -> void:
 	_swing = maxf(0.0, _swing - delta)
 
 	var direction := _input_direction()
-	if direction != Vector2.ZERO:
-		has_target = false
-		attack_target = null
-		_swing = 0.0
-	else:
-		# Tasto premuto = ordine continuo: il cursore resta la destinazione finche' non
-		# viene rilasciato. WASD ha sempre la precedenza e annulla l'ordine.
-		_hold_tick(delta)
-
-	if direction == Vector2.ZERO and _try_attack(delta):
-		pass
-	elif direction == Vector2.ZERO and has_target:
-		direction = _path_direction()
-		if direction == Vector2.ZERO and agent.is_navigation_finished():
-			has_target = false
+	# Il clic non entra mai in questo ramo: attack_target serve solo a scegliere chi
+	# colpire. Il movimento e' esclusivamente il vettore WASD.
+	_hold_tick(delta)
+	_try_attack(delta)
 
 	apply_motion(direction, velocita(), delta)
 	if _marker_alpha > 0.0:
@@ -103,7 +92,7 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Trascinare con il tasto giu' sposta la destinazione: e' il senso del "tieni premuto".
+	# Tenere premuto il tasto sinistro continua l'attacco sul bersaglio, non il movimento.
 	if event is InputEventMouseMotion and _mouse_held:
 		_cursor_last = get_global_mouse_position()
 		return
@@ -117,16 +106,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	else:
 		set_hold(false, get_global_mouse_position())
 
-# Esegue un ordine nel punto indicato: mostro se c'e', altrimenti terreno.
+# Se il punto e' un mostro seleziona il bersaglio. Cliccare il terreno non produce alcun
+# ordine di movimento: questa e' una scelta deliberata, per permettere di arretrare con
+# WASD mentre si attacca col mouse senza che il clic trascini il personaggio in avanti.
 func command_at(point: Vector2) -> void:
 	var enemy := _enemy_at(point)
 	if enemy != null:
 		attack_target = enemy
-		set_move_target(enemy.global_position)
-		_repath = 0.0
 	else:
 		attack_target = null
-		set_move_target(point)
 
 # Tasto sinistro: true alla pressione, false al rilascio. E' separato dall'input vero
 # perche' il selftest headless non ha un mouse e deve provare la stessa catena.
@@ -137,13 +125,11 @@ func set_hold(held: bool, point: Vector2) -> void:
 		_hold_repath = 0.0
 		command_at(point)
 	else:
-		# Al rilascio si smette di menare, ma si finisce di camminare verso l'ultimo punto:
-		# annullare anche il percorso darebbe un personaggio che si pianta a meta' passo.
+		# Al rilascio si smette di menare. Il movimento WASD, se premuto, continua.
 		attack_target = null
 
-# Comando continuo. Se il bersaglio e' vivo non fa niente: _try_attack ricalcola gia' il
-# percorso da solo. Se e' morto, o il cursore e' finito su qualcos'altro, rilegge il punto
-# senza aspettare un nuovo clic.
+# Comando continuo: se il bersaglio muore, il cursore puo' scegliere un nuovo bersaglio;
+# non viene mai trasformato in una destinazione di movimento.
 func _hold_tick(delta: float) -> void:
 	if not _mouse_held:
 		return
@@ -152,14 +138,9 @@ func _hold_tick(delta: float) -> void:
 	_hold_repath -= delta
 	if _hold_repath <= 0.0:
 		_hold_repath = 0.15
-		command_at(_cursor_last)
-
-func set_move_target(target: Vector2) -> void:
-	agent.target_position = target
-	has_target = true
-	_marker_pos = target
-	_marker_alpha = 1.0
-	queue_redraw()
+		var enemy := _enemy_at(_cursor_last)
+		if enemy != null:
+			attack_target = enemy
 
 # Ferma il personaggio e cancella l'ordine di movimento. Serve al selftest quando sposta
 # il giocatore a mano: senza questo il percorso vecchio continua a trascinarlo.
@@ -168,7 +149,6 @@ func stop() -> void:
 	has_target = false
 	attack_target = null
 	velocity = Vector2.ZERO
-	agent.target_position = global_position
 	_marker_alpha = 0.0
 
 func set_camera_limits(bounds: Rect2) -> void:
@@ -177,35 +157,24 @@ func set_camera_limits(bounds: Rect2) -> void:
 	camera.limit_right = int(bounds.end.x)
 	camera.limit_bottom = int(bounds.end.y)
 
-# Attacco: se c'e' un bersaglio vivo e a portata, mena e ferma il movimento.
-# Restituisce true solo se il colpo e' partito (o e' in ricarica) e il personaggio deve
-# restare fermo. Fuori portata restituisce false: il chiamante deve seguire il percorso,
-# altrimenti il giocatore resta piantato a guardare il mostro (era il difetto della fase 2).
-func _try_attack(delta: float) -> bool:
+# Attacco: se c'e' un bersaglio vivo e a portata, mena. Fuori portata non insegue: il
+# giocatore resta fermo o si muove soltanto con WASD.
+func _try_attack(delta: float) -> void:
 	if attack_target == null:
-		return false
+		return
 	if not is_instance_valid(attack_target) or not attack_target.alive:
 		attack_target = null
-		return false
+		return
 
 	var to_target := attack_target.global_position - global_position
 	if to_target.length() > PORTATA_MISCHIA:
-		# Fuori portata: si continua a camminare verso il bersaglio, ricalcolando il
-		# percorso ogni quarto di secondo perche' il mostro si muove.
-		_repath -= delta
-		if _repath <= 0.0:
-			agent.target_position = attack_target.global_position
-			has_target = true
-			_repath = 0.25
-		return false
+		return
 
-	has_target = false
 	facing = to_target.normalized()
 	if _cooldown <= 0.0:
 		_swing = TEMPO_FENDENTE
 		_cooldown = TEMPO_RECUPERO
 		_swing_hit()
-	return true
 
 func _swing_hit() -> void:
 	var crit_chance := 0.08 + float(destrezza()) * 0.004 + float(equipment.bonus(Affix.Tipo.CRITICO)) * 0.01

@@ -38,6 +38,9 @@ if (-not $SaltaEsportazione) {
     Write-Host "1/4 Esporto l'eseguibile..."
     New-Item -ItemType Directory -Force -Path $dist | Out-Null
     & $Godot --headless --path . --export-release "Windows Desktop" $eseguibile | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Esportazione fallita con codice $LASTEXITCODE. Il vecchio exe non viene riutilizzato."
+    }
     if (-not (Test-Path $eseguibile)) {
         throw "Esportazione fallita: $eseguibile non e' stato creato."
     }

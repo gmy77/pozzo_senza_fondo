@@ -75,7 +75,7 @@ func _process(delta: float) -> void:
 	var player := world.player
 	if inventory_panel != null:
 		inventory_panel.oro = player.gold
-	var hint := "WASD o clic per muoversi e attaccare, I per lo zaino, ESC per il menu"
+	var hint := "WASD per muoversi, clic per attaccare, I per lo zaino, ESC per il menu"
 	if state == AppState.DEAD:
 		hint = "SEI MORTO - premi R per ricominciare"
 	elif notice_left > 0.0:

@@ -17,10 +17,10 @@ Dal menu: NUOVA PARTITA.
 COMANDI
 -------
   WASD .................. muoversi
-  clic sinistro ......... vai dove indichi.
-                          Tenuto premuto: continui a camminare.
-                          Su uno scheletro: lo insegui e lo colpisci
-                          finche' tieni premuto e lui e' vivo.
+  clic sinistro ......... sul terreno non fa nulla.
+                          Su uno scheletro: lo attacca se e' a portata.
+                          Tenuto premuto: continua ad attaccarlo, ma
+                          NON lo insegue.
   I ..................... zaino ed equipaggiamento
   ESC ................... menu (riprendi, salva, carica, titolo, esci)
   R ..................... se sei morto, riparti

@@ -16,7 +16,8 @@ tile si vede subito. Con il 3/4 ortogonale ho:
 
 - griglia di celle allineate agli assi → collisioni, navmesh e nebbia condividono la stessa
   geometria (`Rect2` in pixel-mondo);
-- click-to-move banale: `NavigationAgent2D.target_position = get_global_mouse_position()`;
+- input separato e leggibile: WASD muove, il clic seleziona/attacca; il mouse non puo' mai
+  trascinare il giocatore dentro un gruppo di nemici;
 - muri disegnati con una faccia frontale (altezza finta ~20 px) per dare profondita'
   senza pagare il costo dell'isometrico.
 
@@ -477,9 +478,19 @@ portata `_try_attack()` restituiva `true`, quindi il ramo che segue il percorso 
 eseguito e il giocatore restava fermo a guardare il mostro. Ora restituisce `true` solo
 quando e' a portata e deve stare fermo.
 
-Tenere premuto e trascinare aggiorna la destinazione senza nuovi clic; WASD ha sempre la
-precedenza e annulla l'ordine. Rilasciando si smette di menare ma si finisce di camminare
-verso l'ultimo punto: piantarsi a meta' passo sarebbe peggio.
+Tenere premuto continua l'attacco solo se il bersaglio e' a portata; fuori portata non c'e'
+inseguimento automatico. WASD muove sempre e puo' essere usato per arretrare mentre il
+bersaglio resta selezionato. Rilasciando il mouse si smette di menare.
+
+### Controllo definitivo del giocatore
+
+Il clic **non muove mai** il giocatore. Un clic sul terreno non fa nulla; un clic su un
+mostro seleziona quel mostro e produce il fendente solo entro `PORTATA_MISCHIA` (34 px).
+Tenere premuto ripete il tentativo di attacco sullo stesso bersaglio, ma non lo insegue.
+Il movimento e' esclusivamente WASD: questa separazione permette di colpire e arretrare
+contemporaneamente, senza che il clic di attacco annulli la fuga o porti il personaggio
+verso gli altri nemici. Il selftest verifica il clic sul terreno (<10 px di assestamento),
+il clic sul corpo del mostro e che il bersaglio spostato non venga inseguito.
 
 ---
 
@@ -653,9 +664,9 @@ liberato, i contenitori no. `Main._restart()` applica la penalita' e ricollega i
 
 | Fase | File principali | Risultato verificabile | Stato |
 |---|---|---|---|
-| 1 | `main.gd`, `main.tscn`, `project.godot`, `autoload/event_bus.gd`, `scripts/core/{constants,rng,art,scene_factory}.gd`, `scripts/combat/stats.gd`, `scripts/entities/{entity,player}.gd`, `scripts/world/{world_root,floor_builder,floor_painter,wall_block,prop_body,test_room}.gd`, `tools/selftest.gd` | stanza con muri, barili fisici, movimento click e WASD, telecamera, occlusione dei muri alti | **fatta**, 11 controlli headless verdi |
+| 1 | `main.gd`, `main.tscn`, `project.godot`, `autoload/event_bus.gd`, `scripts/core/{constants,rng,art,scene_factory}.gd`, `scripts/combat/stats.gd`, `scripts/entities/{entity,player}.gd`, `scripts/world/{world_root,floor_builder,floor_painter,wall_block,prop_body,test_room}.gd`, `tools/selftest.gd` | stanza con muri, barili fisici, movimento WASD, telecamera, occlusione dei muri alti | **fatta**, 11 controlli headless verdi |
 | 2 | `scripts/combat/{damage,hitbox}.gd`, `scripts/entities/{entity,enemy}.gd`, `scripts/entities/enemies/skeleton.gd`, `scripts/fx/damage_number.gd`, `scripts/world/gold_pickup.gd` | scheletro con FSM, colpi, numeri, morte, oro, tasto tenuto premuto, contraccolpo su muro, corridoio affollato | **fatta**, 29 controlli headless verdi |
-| 3 | `scripts/items/{item_base,affix,item,item_generator,inventory,equipment}.gd`, `scripts/world/ground_item.gd`, `scripts/ui/{inventory_panel,tooltip}.gd` | loot casuale da mostri e barili, oggetti a terra, griglia con drag & drop, manichino, morte senza perdita di oggetti, menu e salvataggio | **fatta**, 74 controlli headless verdi |
+| 3 | `scripts/items/{item_base,affix,item,item_generator,inventory,equipment}.gd`, `scripts/world/ground_item.gd`, `scripts/ui/{inventory_panel,tooltip,main_menu}.gd`, `scripts/core/game_state.gd` | loot casuale da mostri e barili, oggetti a terra, griglia con drag & drop, manichino, morte senza perdita di oggetti, menu e salvataggio | **fatta**, 75 controlli headless verdi |
 | 4 | `dungeon_generator.gd`, `dungeon_floor.gd`, `fog_of_war.gd`, `lighting.gd`, mostri 2-6 | 4 piani della Cripta, scale, nebbia, luce | da fare |
 | 5 | `village.gd`, `npc.gd`, `ui/dialog_panel.gd`, `ui/shop_panel.gd`, `equipment.gd` | borgo con 4 NPC, compravendita, riparazione, identificazione | da fare |
 | 6 | `quests.gd`, `quest_manager.gd`, `bosses/*`, classi Arciera e Mago, `projectile.gd` | quest attive, boss con pattern, frecce e palle di fuoco | da fare |
