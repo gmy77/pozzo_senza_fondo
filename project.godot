@@ -1,0 +1,44 @@
+; Il Pozzo Senza Fondo — configurazione del progetto
+; Generato a mano: il progetto deve partire anche senza aprire l'editor.
+
+config_version=5
+
+[application]
+
+config/name="Il Pozzo Senza Fondo"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[autoload]
+
+EventBus="*res://autoload/event_bus.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[layer_names]
+
+2d_physics/layer_1="Mondo"
+2d_physics/layer_2="Giocatore"
+2d_physics/layer_3="Nemici"
+2d_physics/layer_4="Colpi giocatore"
+2d_physics/layer_5="Colpi nemici"
+2d_physics/layer_6="Props fisici"
+2d_physics/layer_7="Bottino"
+2d_physics/layer_8="Interagibili"
+2d_physics/layer_9="Zone"
+2d_physics/layer_10="Effetti terra"
+
+[physics]
+
+2d/default_gravity=0.0
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+textures/canvas_textures/default_texture_filter=0
+environment/defaults/default_clear_color=Color(0.03, 0.03, 0.04, 1)
