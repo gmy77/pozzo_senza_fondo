@@ -425,6 +425,30 @@ static func run(main: Main) -> void:
 		"il colpo toglie il danno ridotto, non quello pieno (%d)" % (hp_prima_colpo - player.hp),
 		notes
 	)
+	# --- Cintura: accetta solo 1x1, e il rifiuto non smonta l'equipaggiamento ---
+	var anello := Item.new(ItemBase.per_id("anello"))
+	failures += _check(inv.aggiungi(anello), "l'anello 1x1 entra nello zaino", notes)
+	panel.prendi(anello)
+	var in_cintura := panel.rilascia(panel.punto_cintura(1))
+	failures += _check(in_cintura and anello.cintura == 1, "l'anello si mette nella cintura", notes)
+	panel.prendi(spadone)
+	var spadone_in_cintura := panel.rilascia(panel.punto_cintura(2))
+	failures += _check(
+		not spadone_in_cintura and player.equipment.oggetto(Equipment.Slot.ARMA) == spadone,
+		"lo spadone non entra nella cintura e resta equipaggiato",
+		notes
+	)
+
+	# --- Tooltip: nome, rarita' e proprieta' leggibili ---
+	var suggerimento := Tooltip.new()
+	main.add_child(suggerimento)
+	suggerimento.mostra(spadone, Vector2(10.0, 10.0))
+	failures += _check(
+		suggerimento.visible and suggerimento.size.x > 100.0 and spadone.righe().size() >= 3,
+		"il tooltip si apre con nome e proprieta' (%d righe)" % spadone.righe().size(),
+		notes
+	)
+	suggerimento.queue_free()
 	panel.chiudi()
 
 	# --- I barili lasciano oggetti, non solo monete ---

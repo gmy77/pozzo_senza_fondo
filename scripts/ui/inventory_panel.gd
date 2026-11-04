@@ -17,16 +17,20 @@ const LATO_SLOT: float = 58.0
 # Posizione dei nove slot del manichino, nello stesso ordine di Equipment.Slot.
 # Sono coordinate locali del pannello: tenerle in una tabella evita nove calcoli sparsi
 # nel disegno e altri nove, inevitabilmente diversi, nel codice del mouse.
+# Disposizione a quattro file (1-3-3-2): testa, busto con armi ai lati, estremita' e
+# amuleto, gioielli in fondo. L'ordine dell'array e' quello di Equipment.Slot, non quello
+# visivo: le due cose non devono coincidere, e tenerle separate evita di rinumerare l'enum
+# ogni volta che si sposta un riquadro.
 const POSTI_SLOT: Array[Vector2] = [
 	Vector2(16.0, 142.0),   # ARMA
 	Vector2(150.0, 142.0),  # SCUDO
 	Vector2(83.0, 74.0),    # ELMO
 	Vector2(83.0, 142.0),   # CORAZZA
 	Vector2(16.0, 210.0),   # GUANTI
-	Vector2(83.0, 278.0),   # STIVALI
-	Vector2(16.0, 278.0),   # ANELLO_SX
-	Vector2(150.0, 278.0),  # ANELLO_DX
-	Vector2(150.0, 74.0),   # AMULETO
+	Vector2(150.0, 210.0),  # STIVALI
+	Vector2(50.0, 278.0),   # ANELLO_SX
+	Vector2(116.0, 278.0),  # ANELLO_DX
+	Vector2(83.0, 210.0),   # AMULETO
 ]
 
 var inventory: Inventory

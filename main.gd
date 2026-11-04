@@ -91,6 +91,24 @@ func _setup_inventory() -> void:
 	inventory_panel.name = "InventoryPanel"
 	add_child(inventory_panel)
 	inventory_panel.collega(world.player)
+	if OS.get_environment("POZZO_ZAINO") == "1":
+		_zaino_di_prova()
+
+# Gancio di debug: POZZO_ZAINO=1 riempie lo zaino di bottino generato, indossa quello che
+# puo' e apre il pannello. Serve a fotografare la UI senza giocare mezz'ora.
+func _zaino_di_prova() -> void:
+	var player := world.player
+	var rng := Rng.new(4242)
+	for i in 14:
+		var item := ItemGenerator.roll(rng, 1 + i % 6)
+		var slot := player.equipment.slot_adatto(item)
+		if slot >= 0 and player.equipment.oggetto(slot) == null:
+			player.equipment.equipaggia(slot, item)
+		else:
+			player.inventory.aggiungi(item)
+	player.gold = 173
+	EventBus.equipment_changed.emit()
+	inventory_panel.apri()
 
 func _on_notice(text: String) -> void:
 	notice_text = text
